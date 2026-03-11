@@ -63,11 +63,11 @@ func newHandler(opts Options) slog.Handler {
 			if a.Key == slog.TimeKey {
 				return slog.Attr{}
 			}
-			// Убираем стандартный level, будем добавлять свой цветной
+			// Убираем стандартный level
 			if a.Key == slog.LevelKey {
 				return slog.Attr{}
 			}
-			// Убираем message, будем добавлять своим порядком
+			// Убираем стандартный message, будем добавлять своим порядком
 			if a.Key == slog.MessageKey {
 				return slog.Attr{}
 			}
@@ -121,7 +121,7 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Service name
 	serviceStr := color.CyanString("[%-15s]", h.opts.ServiceName)
 
-	// Thread name (берём ID горутины)
+	// Thread name (ID горутины)
 	thread := getGoroutineID()
 	threadStr := color.HiBlackString("[%s]", thread)
 
@@ -130,7 +130,6 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	if r.PC != 0 {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
 		f, _ := fs.Next()
-		// сокращаем путь до пакета/файла
 		if f.File != "" {
 			parts := strings.Split(f.File, "/")
 			if len(parts) > 3 {
@@ -146,18 +145,7 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Сообщение
 	msg := r.Message
 
-	// Собираем строку
-	fmt.Fprintf(os.Stdout, "%s %s %s %s %s %s : %s\n",
-		timeStr,
-		levelStr,
-		pidStr,
-		serviceStr,
-		threadStr,
-		loggerNameStr,
-		msg,
-	)
-
-	// Дополнительные атрибуты (ключ=значение)
+	// Собираем дополнительные атрибуты в одну строку [key=value ...]
 	attrs := make([]string, 0)
 	r.Attrs(func(a slog.Attr) bool {
 		if a.Key != "" {
@@ -165,9 +153,22 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 		}
 		return true
 	})
+	var attrsStr string
 	if len(attrs) > 0 {
-		fmt.Fprintf(os.Stdout, "  %s\n", color.HiBlackString(strings.Join(attrs, " ")))
+		attrsStr = " [" + strings.Join(attrs, " ") + "]"
 	}
+
+	// Итоговая строка: время уровень pid [service] [thread] logger : сообщение [attrs]
+	fmt.Fprintf(os.Stdout, "%s %s %s %s %s %s : %s%s\n",
+		timeStr,
+		levelStr,
+		pidStr,
+		serviceStr,
+		threadStr,
+		loggerNameStr,
+		msg,
+		attrsStr,
+	)
 
 	return nil
 }
@@ -179,10 +180,8 @@ type jsonHandler struct {
 }
 
 func (h *jsonHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Создаём копию записи и добавляем нужные поля
 	attrs := make(map[string]interface{})
 
-	// Стандартные поля в нужном порядке
 	attrs["timestamp"] = r.Time.Format("2006-01-02T15:04:05.000-07:00")
 	attrs["level"] = r.Level.String()
 	attrs["pid"] = os.Getpid()
@@ -197,13 +196,11 @@ func (h *jsonHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 	attrs["message"] = r.Message
 
-	// Дополнительные атрибуты
 	r.Attrs(func(a slog.Attr) bool {
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})
 
-	// Маршаллим в JSON
 	data, err := json.Marshal(attrs)
 	if err != nil {
 		return err

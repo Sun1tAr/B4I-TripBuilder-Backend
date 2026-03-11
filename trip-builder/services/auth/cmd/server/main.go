@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,27 +17,25 @@ import (
 
 func main() {
 	// Загружаем .env файл (для разработки)
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using system environment variables")
-	}
+	_ = godotenv.Load() // игнорируем ошибку, если файла нет
 
 	cfg := config.MustLoad()
 
-	logger := logger.New(logger.Options{
+	log := logger.New(logger.Options{
 		Level:       cfg.LogLevel(),
 		ServiceName: cfg.ServiceName,
 		Format:      cfg.LogFormat,
 	})
 
-	logger.Info("запуск сервиса", "port", cfg.HTTPPort)
+	log.Info("Запуск сервиса", "port", cfg.HTTPPort)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handlers.Health)
 	mux.HandleFunc("GET /ready", handlers.Ready)
 
 	handler := middleware.RequestID(mux)
-	handler = middleware.Logging(logger)(handler)
-	handler = middleware.Recover(logger)(handler)
+	handler = middleware.Logging(log)(handler)
+	handler = middleware.Recover(log)(handler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
@@ -53,21 +50,21 @@ func main() {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("ошибка запуска сервера", "error", err)
+			log.Error("Ошибка запуска сервера", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	logger.Info("сервер запущен", "port", cfg.HTTPPort)
+	log.Info("Сервер запущен", "port", cfg.HTTPPort)
 	<-done
-	logger.Info("получен сигнал завершения, останавливаемся")
+	log.Info("Получен сигнал завершения, останавливаемся")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("ошибка при graceful shutdown", "error", err)
+		log.Error("Ошибка при graceful shutdown", "error", err)
 	}
 
-	logger.Info("сервер остановлен")
+	log.Info("Сервер остановлен")
 }
