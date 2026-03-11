@@ -51,19 +51,19 @@ jobs:
           IMAGES_DIR="${{ github.workspace }}/images"
           mkdir -p "$IMAGES_DIR"
           BUILT_SERVICES=""
-
+          
           cd trip-builder/services
           for service in */ ; do
             service=${service%/}
             if [ -f "$service/Dockerfile" ]; then
               echo "Building $service..."
               cd $service
-
+          
               docker build \
                 -t ${REPO_LOWER}/$service:${{ github.sha }} \
                 -f Dockerfile \
                 .
-
+          
               if [ $? -eq 0 ]; then
                 echo "Saving $service..."
                 docker save ${REPO_LOWER}/$service:${{ github.sha }} | gzip > "$IMAGES_DIR/$service.tar.gz"
@@ -77,7 +77,7 @@ jobs:
               echo "⚠️  Skipping $service: Dockerfile not found"
             fi
           done
-
+          
           echo "BUILT_SERVICES=$BUILT_SERVICES" >> $GITHUB_ENV
           echo "✅ Images saved to: $IMAGES_DIR"
           ls -la "$IMAGES_DIR"
@@ -89,7 +89,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: |
-            .docker/${{ env.NGINX_CONF_SOURCE }}
+            ${{ env.NGINX_CONF_SOURCE }}
             trip-builder/services/
           target: /tmp
           strip_components: 0
@@ -120,7 +120,7 @@ jobs:
             cp -r /tmp/trip-builder/services ${{ env.REMOTE_PATH }}/
 
             # Устанавливаем nginx конфиг
-            sudo mv /tmp/.docker/${{ env.NGINX_CONF_SOURCE }} ${{ env.NGINX_CONF_TARGET }}
+            sudo mv /tmp/${{ env.NGINX_CONF_SOURCE }} ${{ env.NGINX_CONF_TARGET }}
             sudo ln -sf ${{ env.NGINX_CONF_TARGET }} /etc/nginx/apps-enabled/$(basename ${{ env.NGINX_CONF_TARGET }})
 
             # Загружаем только те образы, которые реально есть
@@ -135,4 +135,4 @@ jobs:
             # Перезагружаем nginx
             sudo nginx -t && sudo systemctl reload nginx
 
-            echo "✅ Deployed services:${{ env.BUILT_SERVICES }}"
+            echo "✅ Deployed services:${{ env.BUILT_SERVICES}}"
