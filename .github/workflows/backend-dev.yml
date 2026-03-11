@@ -29,17 +29,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Get list of services
-        id: services
-        run: |
-          cd trip-builder/services
-          SERVICES=$(ls -d */ | sed 's#/##' | jq -R -s -c 'split("\n")[:-1]')
-          echo "services=$SERVICES" >> $GITHUB_OUTPUT
-
       - name: Prepare env files and vendor for each service
         run: |
           cd trip-builder/services
-          for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
+          for service in */ ; do
+            service=${service%/}
             echo "Processing $service"
             cd $service
             if [ -f ".env.${{ env.CONTOUR }}" ]; then
@@ -51,33 +45,38 @@ jobs:
             cd ..
           done
 
-      - name: Build Docker images
+      - name: Build and save Docker images
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          mkdir -p images
+          BUILT_SERVICES=""
+          
           cd trip-builder/services
-
-          # Собираем только те сервисы, у которых есть Dockerfile
           for service in */ ; do
             service=${service%/}
             if [ -f "$service/Dockerfile" ]; then
               echo "Building $service..."
+              cd $service
               docker build \
                 -t ${REPO_LOWER}/$service:${{ github.sha }} \
-                -f $service/Dockerfile \
-                $service
+                -f Dockerfile \
+                .
+          
+              if [ $? -eq 0 ]; then
+                echo "Saving $service..."
+                docker save ${REPO_LOWER}/$service:${{ github.sha }} | gzip > ../../images/$service.tar.gz
+                BUILT_SERVICES="$BUILT_SERVICES $service"
+              else
+                echo "❌ Failed to build $service"
+                exit 1
+              fi
+              cd ..
             else
               echo "⚠️  Skipping $service: Dockerfile not found"
             fi
           done
-
-      - name: Save images to tar
-        run: |
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          mkdir -p images
-          cd trip-builder
-          for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
-            docker save ${REPO_LOWER}/$service:${{ github.sha }} | gzip > ../images/$service.tar.gz
-          done
+          
+          echo "BUILT_SERVICES=$BUILT_SERVICES" >> $GITHUB_ENV
 
       - name: Copy nginx config and service dirs to server
         uses: appleboy/scp-action@v0.1.7
@@ -120,16 +119,16 @@ jobs:
             sudo mv /tmp/.docker/${{ env.NGINX_CONF_SOURCE }} ${{ env.NGINX_CONF_TARGET }}
             sudo ln -sf ${{ env.NGINX_CONF_TARGET }} /etc/nginx/apps-enabled/$(basename ${{ env.NGINX_CONF_TARGET }})
 
-            # Загружаем образы
+            # Загружаем только те образы, которые реально есть
             REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
             cd /tmp/images
             for img in *.tar.gz; do
+              echo "Loading $img..."
               gunzip -c "$img" | docker load
             done
             rm -rf /tmp/images
 
-            # Тут разработчик сам запускает docker-compose (мы его не трогаем)
-            echo "Images loaded. Developer should run docker-compose manually with correct .env files."
-
             # Перезагружаем nginx
             sudo nginx -t && sudo systemctl reload nginx
+
+            echo "✅ Deployed services:${{ env.BUILT_SERVICES }}"
