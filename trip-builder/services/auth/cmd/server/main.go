@@ -12,12 +12,12 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Загружаем .env файл (для разработки)
-	_ = godotenv.Load() // игнорируем ошибку, если файла нет
+	_ = godotenv.Load()
 
 	cfg := config.MustLoad()
 
@@ -29,11 +29,19 @@ func main() {
 
 	log.Info("Запуск сервиса", "port", cfg.HTTPPort)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", handlers.Health)
-	mux.HandleFunc("GET /ready", handlers.Ready)
+	// Создаём главный роутер
+	r := mux.NewRouter()
 
-	handler := middleware.RequestID(mux)
+	// Публичные health-эндпоинты (без префикса)
+	r.HandleFunc("/health", handlers.Health).Methods("GET")
+	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
+
+	// Подроутер для API v1 с префиксом /api/v1/auth
+	apiRouter := r.PathPrefix("/api/v1/auth").Subrouter()
+	apiRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+
+	// Применяем middleware ко всему роутеру (включая API и health)
+	handler := middleware.RequestID(r)
 	handler = middleware.Logging(log)(handler)
 	handler = middleware.Recover(log)(handler)
 
