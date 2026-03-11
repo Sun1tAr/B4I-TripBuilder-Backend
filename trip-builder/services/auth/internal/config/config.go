@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/config"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -14,6 +16,23 @@ type Config struct {
 	JWTSecret     string `envconfig:"JWT_SECRET" required:"true"`
 	TokenLifetime int    `envconfig:"TOKEN_LIFETIME" default:"15"`
 	BCryptCost    int    `envconfig:"BCRYPT_COST" default:"10"`
+}
+
+func (c *Config) LogLevel() slog.Level {
+	switch strings.ToLower(c.AppConfig.LogLevel) {
+	case "trace":
+		return logger.LevelTrace
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 func Load() (*Config, error) {

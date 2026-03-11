@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,29 +13,32 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Загружаем .env файл (для разработки)
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
 	cfg := config.MustLoad()
 
-	log := logger.New(logger.Options{
-		Level:       cfg.LogLevel,
+	logger := logger.New(logger.Options{
+		Level:       cfg.LogLevel(),
 		ServiceName: cfg.ServiceName,
 		Format:      cfg.LogFormat,
 	})
 
-	log.Info("запуск сервиса", "port", cfg.HTTPPort)
+	logger.Info("запуск сервиса", "port", cfg.HTTPPort)
 
 	mux := http.NewServeMux()
-
-	// Публичные health-эндпоинты
 	mux.HandleFunc("GET /health", handlers.Health)
 	mux.HandleFunc("GET /ready", handlers.Ready)
 
-	// Цепочка middleware
 	handler := middleware.RequestID(mux)
-	handler = middleware.Logging(log)(handler)
-	handler = middleware.Recover(log)(handler)
+	handler = middleware.Logging(logger)(handler)
+	handler = middleware.Recover(logger)(handler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
@@ -44,27 +48,26 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Graceful shutdown
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("ошибка запуска сервера", "error", err)
+			logger.Error("ошибка запуска сервера", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	log.Info("сервер запущен", "port", cfg.HTTPPort)
+	logger.Info("сервер запущен", "port", cfg.HTTPPort)
 	<-done
-	log.Info("получен сигнал завершения, останавливаемся")
+	logger.Info("получен сигнал завершения, останавливаемся")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("ошибка при graceful shutdown", "error", err)
+		logger.Error("ошибка при graceful shutdown", "error", err)
 	}
 
-	log.Info("сервер остановлен")
+	logger.Info("сервер остановлен")
 }
