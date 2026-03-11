@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -10,8 +11,14 @@ type Database struct {
 	Port     int    `envconfig:"DB_PORT" default:"5432"`
 	User     string `envconfig:"DB_USER" required:"true"`
 	Password string `envconfig:"DB_PASSWORD" required:"true"`
-	Name     string `envconfig:"DB_NAME" required:"true"`
+	Name     string `envconfig:"DB_NAME" required:"true"`   // общая база, например "trip-builder"
+	Schema   string `envconfig:"DB_SCHEMA" required:"true"` // схема сервиса, например "tpb_auth"
 	SSLMode  string `envconfig:"DB_SSLMODE" default:"disable"`
+}
+
+func (d Database) DSN() string {
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s search_path=%s sslmode=%s",
+		d.Host, d.Port, d.User, d.Password, d.Name, d.Schema, d.SSLMode)
 }
 
 type Kafka struct {
@@ -25,11 +32,11 @@ type Redis struct {
 	DB       int    `envconfig:"REDIS_DB" default:"0"`
 }
 
-// AppConfig – общая структура для всех сервисов (каждый сервис может расширить свою)
 type AppConfig struct {
 	ServiceName string `envconfig:"SERVICE_NAME" required:"true"`
-	HTTPPort    int    `envconfig:"HTTP_PORT" default:"8080"`
+	HTTPPort    string `envconfig:"HTTP_PORT" default:"8080"`
 	LogLevel    string `envconfig:"LOG_LEVEL" default:"info"`
+	LogFormat   string `envconfig:"LOG_FORMAT" default:"console"`
 
 	Database Database
 	Kafka    Kafka
