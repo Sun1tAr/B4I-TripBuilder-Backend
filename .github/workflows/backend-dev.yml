@@ -48,23 +48,25 @@ jobs:
       - name: Build and save Docker images
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          mkdir -p images
+          IMAGES_DIR="${{ github.workspace }}/images"
+          mkdir -p "$IMAGES_DIR"
           BUILT_SERVICES=""
-          
+
           cd trip-builder/services
           for service in */ ; do
             service=${service%/}
             if [ -f "$service/Dockerfile" ]; then
               echo "Building $service..."
               cd $service
+
               docker build \
                 -t ${REPO_LOWER}/$service:${{ github.sha }} \
                 -f Dockerfile \
                 .
-          
+
               if [ $? -eq 0 ]; then
                 echo "Saving $service..."
-                docker save ${REPO_LOWER}/$service:${{ github.sha }} | gzip > ../../images/$service.tar.gz
+                docker save ${REPO_LOWER}/$service:${{ github.sha }} | gzip > "$IMAGES_DIR/$service.tar.gz"
                 BUILT_SERVICES="$BUILT_SERVICES $service"
               else
                 echo "❌ Failed to build $service"
@@ -75,8 +77,10 @@ jobs:
               echo "⚠️  Skipping $service: Dockerfile not found"
             fi
           done
-          
+
           echo "BUILT_SERVICES=$BUILT_SERVICES" >> $GITHUB_ENV
+          echo "✅ Images saved to: $IMAGES_DIR"
+          ls -la "$IMAGES_DIR"
 
       - name: Copy nginx config and service dirs to server
         uses: appleboy/scp-action@v0.1.7
