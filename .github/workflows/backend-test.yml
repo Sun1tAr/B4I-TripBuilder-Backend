@@ -13,8 +13,8 @@ env:
   NGINX_APPS_AVAILABLE: /etc/nginx/apps-available/trip-builder-backend-test.conf
   NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/trip-builder-backend-test.conf
   CONTOUR: production
-  AUTH_PORT: 9101
-  USER_PORT: 9102
+  AUTH_PORT: 9001
+  USER_PORT: 9002
   AUTH_CONTAINER_NAME: trip-builder-backend-auth-test
   USER_CONTAINER_NAME: trip-builder-backend-user-test
 
@@ -179,6 +179,7 @@ jobs:
           scp trip-builder/services/auth/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/auth/.env
           scp trip-builder/services/user/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/user/.env
 
+      # Создаем .env файл для docker-compose с образами из GHCR и портами тest
       # Создаем .env файл для docker-compose с образами из GHCR и портами тest
       - name: Create docker-compose .env file on server
         run: |
