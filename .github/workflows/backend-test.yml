@@ -1,0 +1,118 @@
+name: Deploy Backend (Test)
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - release
+
+env:
+  CONTOUR: production
+  COMPOSE_PROJECT_NAME: tripbuilder-test
+  REMOTE_PATH: /opt/trip-builder/test
+  NGINX_CONF_SOURCE: .docker/nginx-backend-test.conf
+  NGINX_CONF_TARGET: /etc/nginx/apps-available/trip-builder-backend-test.conf
+
+jobs:
+  deploy:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get list of services
+        id: services
+        run: |
+          cd trip-builder/services
+          SERVICES=$(ls -d */ | sed 's#/##' | jq -R -s -c 'split("\n")[:-1]')
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+
+      - name: Prepare env files and vendor for each service
+        run: |
+          cd trip-builder/services
+          for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
+            cd $service
+            if [ -f ".env.${{ env.CONTOUR }}" ]; then
+              cp ".env.${{ env.CONTOUR }}" .env
+            fi
+            go mod vendor
+            cd ..
+          done
+
+      - name: Build Docker images
+        run: |
+          cd trip-builder
+          for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
+            docker build \
+              -t ${{ github.repository }}/$service:${{ github.sha }} \
+              -f services/$service/Dockerfile \
+              services/$service
+          done
+
+      - name: Save images to tar
+        run: |
+          mkdir -p images
+          cd trip-builder
+          for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
+            docker save ${{ github.repository }}/$service:${{ github.sha }} | gzip > ../images/$service.tar.gz
+          done
+
+      - name: Copy Nginx config and docker-compose to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: |
+            .docker/${{ env.NGINX_CONF_SOURCE }}
+            trip-builder/docker-compose.yml
+          target: /tmp
+
+      - name: Copy images to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "images/*.tar.gz"
+          target: "/tmp"
+
+      - name: Deploy on server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+
+            sudo mkdir -p ${{ env.REMOTE_PATH }}
+            sudo chown $USER:$USER ${{ env.REMOTE_PATH }}
+
+            mv /tmp/trip-builder/docker-compose.yml ${{ env.REMOTE_PATH }}/docker-compose.yml
+
+            sudo mv /tmp/.docker/${{ env.NGINX_CONF_SOURCE }} ${{ env.NGINX_CONF_TARGET }}
+            sudo ln -sf ${{ env.NGINX_CONF_TARGET }} /etc/nginx/apps-enabled/$(basename ${{ env.NGINX_CONF_TARGET }})
+
+            cd /tmp/images
+            for img in *.tar.gz; do
+              gunzip -c "$img" | docker load
+            done
+            rm -rf /tmp/images
+
+            cd ${{ env.REMOTE_PATH }}
+            docker-compose -p ${{ env.COMPOSE_PROJECT_NAME }} down || true
+            echo "IMAGE_TAG=${{ github.sha }}" > .env
+            docker-compose -p ${{ env.COMPOSE_PROJECT_NAME }} up -d
+
+            sudo nginx -t && sudo systemctl reload nginx
+            docker image prune -a -f --filter "until=24h"

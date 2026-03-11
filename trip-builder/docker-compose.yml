@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  auth:
+    build:
+      context: services/auth/
+      dockerfile: Dockerfile
+    container_name: trip-builder-auth
+    env_file:
+      - services/auth/.env
+    ports:
+      - "${AUTH_PORT_LOCAL:-8081}:8081"
+      - "${AUTH_PORT_DEV:-9101}:9101"
+      - "${AUTH_PORT_TEST:-9001}:9001"
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+
+  user:
+    build:
+      context: services/user/
+      dockerfile: Dockerfile
+    container_name: trip-builder-user
+    env_file:
+      - services/user/.env
+    ports:
+      - "${USER_PORT_LOCAL:-8082}:8082"
+      - "${USER_PORT_DEV:-9102}:9102"
+      - "${USER_PORT_TEST:-9002}:9002"
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+
+
+
+networks:
+  trip-builder-network:
+    driver: bridge
