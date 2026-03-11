@@ -169,17 +169,20 @@ jobs:
         run: |
           scp trip-builder/docker-compose.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/docker-compose.yml
 
-      # Копируем .env файлы для каждого сервиса (из репозитория)
+      # Копируем .env файлы для каждого сервиса
       - name: Copy env files to server
         run: |
           scp trip-builder/services/auth/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/auth/.env
           scp trip-builder/services/user/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/user/.env
 
+      # Создаем .env файл для docker-compose с образами из GHCR и портами dev
       - name: Create docker-compose .env file on server
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
           USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
+          AUTH_PORT_DEV=9101
+          USER_PORT_DEV=9102
           CONTOUR=${{ env.CONTOUR }}
           EOF"
 
@@ -188,19 +191,19 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
             cd ${{ env.DEPLOY_PATH }}
-          
+
             # Login to GitHub Container Registry
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-          
+
             # Pull latest images
             docker-compose pull
-          
+
             # Stop and remove old containers
             docker-compose down --remove-orphans || true
-          
-            # Start new containers
-            docker-compose up -d
-          
+
+            # Start new containers WITHOUT BUILD (использует готовые образы из .env)
+            docker-compose up -d --no-build
+
             docker image prune -f
           EOF
 

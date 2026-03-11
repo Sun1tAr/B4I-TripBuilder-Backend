@@ -5,6 +5,7 @@ services:
     build:
       context: services/auth/
       dockerfile: Dockerfile
+    image: ${AUTH_IMAGE:-trip-builder-auth:local}
     container_name: trip-builder-auth
     env_file:
       - services/auth/.env
@@ -20,6 +21,7 @@ services:
     build:
       context: services/user/
       dockerfile: Dockerfile
+    image: ${USER_IMAGE:-trip-builder-user:local}
     container_name: trip-builder-user
     env_file:
       - services/user/.env
