@@ -53,14 +53,21 @@ jobs:
 
       - name: Build Docker images
         run: |
-          # Приводим имя репозитория к нижнему регистру (Docker требует)
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          cd trip-builder
-          for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
-            docker build \
-              -t ${REPO_LOWER}/$service:${{ github.sha }} \
-              -f services/$service/Dockerfile \
-              services/$service
+          cd trip-builder/services
+
+          # Собираем только те сервисы, у которых есть Dockerfile
+          for service in */ ; do
+            service=${service%/}
+            if [ -f "$service/Dockerfile" ]; then
+              echo "Building $service..."
+              docker build \
+                -t ${REPO_LOWER}/$service:${{ github.sha }} \
+                -f $service/Dockerfile \
+                $service
+            else
+              echo "⚠️  Skipping $service: Dockerfile not found"
+            fi
           done
 
       - name: Save images to tar
