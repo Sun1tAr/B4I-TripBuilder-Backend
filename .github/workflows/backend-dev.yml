@@ -15,8 +15,8 @@ env:
   CONTOUR: development
   AUTH_PORT: 9101
   USER_PORT: 9102
-  AUTH_CONTAINER_NAME: trip-builder-backend-auth
-  USER_CONTAINER_NAME: trip-builder-backend-user
+  AUTH_CONTAINER_NAME: trip-builder-backend-auth-dev
+  USER_CONTAINER_NAME: trip-builder-backend-user-dev
 
 jobs:
   test-and-build:
