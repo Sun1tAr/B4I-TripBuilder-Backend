@@ -50,23 +50,25 @@ jobs:
 
       - name: Build Docker images
         run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           cd trip-builder
           for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
             docker build \
-              -t ${{ github.repository }}/$service:${{ github.sha }} \
+              -t ${REPO_LOWER}/$service:${{ github.sha }} \
               -f services/$service/Dockerfile \
               services/$service
           done
 
       - name: Save images to tar
         run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           mkdir -p images
           cd trip-builder
           for service in $(echo '${{ steps.services.outputs.services }}' | jq -r '.[]'); do
-            docker save ${{ github.repository }}/$service:${{ github.sha }} | gzip > ../images/$service.tar.gz
+            docker save ${REPO_LOWER}/$service:${{ github.sha }} | gzip > ../images/$service.tar.gz
           done
 
-      - name: Copy Nginx config and docker-compose to server
+      - name: Copy nginx config and service dirs to server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -74,8 +76,9 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: |
             .docker/${{ env.NGINX_CONF_SOURCE }}
-            trip-builder/docker-compose.yml
+            trip-builder/services/
           target: /tmp
+          strip_components: 0
 
       - name: Copy images to server
         uses: appleboy/scp-action@v0.1.7
@@ -98,21 +101,18 @@ jobs:
             sudo mkdir -p ${{ env.REMOTE_PATH }}
             sudo chown $USER:$USER ${{ env.REMOTE_PATH }}
 
-            mv /tmp/trip-builder/docker-compose.yml ${{ env.REMOTE_PATH }}/docker-compose.yml
+            cp -r /tmp/trip-builder/services ${{ env.REMOTE_PATH }}/
 
             sudo mv /tmp/.docker/${{ env.NGINX_CONF_SOURCE }} ${{ env.NGINX_CONF_TARGET }}
             sudo ln -sf ${{ env.NGINX_CONF_TARGET }} /etc/nginx/apps-enabled/$(basename ${{ env.NGINX_CONF_TARGET }})
 
+            REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
             cd /tmp/images
             for img in *.tar.gz; do
               gunzip -c "$img" | docker load
             done
             rm -rf /tmp/images
 
-            cd ${{ env.REMOTE_PATH }}
-            docker-compose -p ${{ env.COMPOSE_PROJECT_NAME }} down || true
-            echo "IMAGE_TAG=${{ github.sha }}" > .env
-            docker-compose -p ${{ env.COMPOSE_PROJECT_NAME }} up -d
+            echo "Images loaded. Developer should run docker-compose manually."
 
             sudo nginx -t && sudo systemctl reload nginx
-            docker image prune -a -f --filter "until=24h"
