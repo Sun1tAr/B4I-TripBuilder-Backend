@@ -32,14 +32,12 @@ jobs:
       - name: Prepare env files and vendor for each service
         run: |
           cd trip-builder/services
-          for service in */ ; do
-            service=${service%/}
+          # Только реальные сервисы с кодом
+          for service in auth user; do
             echo "Processing $service"
             cd $service
             if [ -f ".env.${{ env.CONTOUR }}" ]; then
               cp ".env.${{ env.CONTOUR }}" .env
-            else
-              echo "Warning: .env.${{ env.CONTOUR }} not found in $service"
             fi
             go mod vendor
             cd ..
@@ -53,8 +51,8 @@ jobs:
           BUILT_SERVICES=""
           
           cd trip-builder/services
-          for service in */ ; do
-            service=${service%/}
+          # Только сервисы с Dockerfile
+          for service in auth user; do
             if [ -f "$service/Dockerfile" ]; then
               echo "Building $service..."
               cd $service
@@ -73,13 +71,10 @@ jobs:
                 exit 1
               fi
               cd ..
-            else
-              echo "⚠️  Skipping $service: Dockerfile not found"
             fi
           done
           
           echo "BUILT_SERVICES=$BUILT_SERVICES" >> $GITHUB_ENV
-          echo "✅ Images saved to: $IMAGES_DIR"
           ls -la "$IMAGES_DIR"
 
       - name: Copy nginx config and service dirs to server
@@ -89,8 +84,9 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: |
-            ${{ env.NGINX_CONF_SOURCE }}
-            trip-builder/services/
+            .docker/nginx-backend-dev.conf
+            trip-builder/services/auth/
+            trip-builder/services/user/
           target: /tmp
           strip_components: 0
 
@@ -116,14 +112,18 @@ jobs:
             sudo mkdir -p ${{ env.REMOTE_PATH }}
             sudo chown $USER:$USER ${{ env.REMOTE_PATH }}
 
-            # Копируем папки сервисов (уже с .env файлами)
-            cp -r /tmp/trip-builder/services ${{ env.REMOTE_PATH }}/
+            # Копируем папки сервисов
+            cp -r /tmp/trip-builder/services/auth ${{ env.REMOTE_PATH }}/
+            cp -r /tmp/trip-builder/services/user ${{ env.REMOTE_PATH }}/
+
+            # Копируем docker-compose.yml
+            cp /tmp/trip-builder/docker-compose.yml ${{ env.REMOTE_PATH }}/ 2>/dev/null || echo "No docker-compose.yml"
 
             # Устанавливаем nginx конфиг
-            sudo mv /tmp/${{ env.NGINX_CONF_SOURCE }} ${{ env.NGINX_CONF_TARGET }}
+            sudo mv /tmp/.docker/nginx-backend-dev.conf ${{ env.NGINX_CONF_TARGET }}
             sudo ln -sf ${{ env.NGINX_CONF_TARGET }} /etc/nginx/apps-enabled/$(basename ${{ env.NGINX_CONF_TARGET }})
 
-            # Загружаем только те образы, которые реально есть
+            # Загружаем образы
             REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
             cd /tmp/images
             for img in *.tar.gz; do
@@ -135,4 +135,4 @@ jobs:
             # Перезагружаем nginx
             sudo nginx -t && sudo systemctl reload nginx
 
-            echo "✅ Deployed services:${{ env.BUILT_SERVICES}}"
+            echo "✅ Deployed services:${{ env.BUILT_SERVICES }}"
