@@ -13,6 +13,8 @@ env:
   NGINX_APPS_AVAILABLE: /etc/nginx/apps-available/trip-builder-backend-dev.conf
   NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/trip-builder-backend-dev.conf
   CONTOUR: development
+  AUTH_PORT: 9101
+  USER_PORT: 9102
 
 jobs:
   test-and-build:
@@ -181,8 +183,8 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
           USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
-          AUTH_PORT_DEV=9101
-          USER_PORT_DEV=9102
+          AUTH_PORT=${{ env.AUTH_PORT }}
+          USER_PORT=${{ env.USER_PORT }}
           CONTOUR=${{ env.CONTOUR }}
           EOF"
 
