@@ -34,44 +34,35 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      # Только сервисы с реальным кодом (auth и user)
-      - name: Create vendor for Auth
+      # Auth service
+      - name: Prepare Auth vendor
         working-directory: ./trip-builder/services/auth
         run: |
           go mod download
           go mod vendor
+          go test ./... -v || true
 
-      - name: Create vendor for User
+      # User service
+      - name: Prepare User vendor
         working-directory: ./trip-builder/services/user
         run: |
           go mod download
           go mod vendor
+          go test ./... -v || true
 
-      - name: Run tests (Auth service)
-        working-directory: ./trip-builder/services/auth
-        run: go test ./... -v
-        continue-on-error: true
-
-      - name: Run tests (User service)
-        working-directory: ./trip-builder/services/user
-        run: go test ./... -v
-        continue-on-error: true
-
-      - name: Build Auth service
-        working-directory: ./trip-builder/services/auth
-        run: go build -v -o bin/auth ./cmd/server
-
-      - name: Build User service
-        working-directory: ./trip-builder/services/user
-        run: go build -v -o bin/user ./cmd/server
-
-      - name: Upload build artifacts
+      # Сохраняем vendor для Docker сборки
+      - name: Upload Auth vendor
         uses: actions/upload-artifact@v4
         with:
-          name: binaries
-          path: |
-            trip-builder/services/auth/bin/auth
-            trip-builder/services/user/bin/user
+          name: auth-vendor
+          path: trip-builder/services/auth/vendor/
+          retention-days: 1
+
+      - name: Upload User vendor
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-vendor
+          path: trip-builder/services/user/vendor/
           retention-days: 1
 
   docker-build:
@@ -94,33 +85,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      # Скачиваем vendor из предыдущей job
+      - name: Download Auth vendor
+        uses: actions/download-artifact@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
+          name: auth-vendor
+          path: trip-builder/services/auth/vendor/
 
-      # Подготовка env файлов для dev контура
-      - name: Prepare env files for dev
-        run: |
-          cd trip-builder/services
-          for service in auth user; do
-            if [ -f "$service/.env.${{ env.CONTOUR }}" ]; then
-              cp "$service/.env.${{ env.CONTOUR }}" "$service/.env"
-              echo "✅ Prepared .env for $service"
-            fi
-          done
-
-      - name: Create vendor for Auth (for Docker)
-        working-directory: ./trip-builder/services/auth
-        run: |
-          go mod download
-          go mod vendor
-
-      - name: Create vendor for User (for Docker)
-        working-directory: ./trip-builder/services/user
-        run: |
-          go mod download
-          go mod vendor
+      - name: Download User vendor
+        uses: actions/download-artifact@v4
+        with:
+          name: user-vendor
+          path: trip-builder/services/user/vendor/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -185,26 +161,23 @@ jobs:
       - name: Add host to known_hosts
         run: ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Create deploy directory on server
+      - name: Create deploy directories on server
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}"
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services/auth ${{ env.DEPLOY_PATH }}/services/user"
 
-      # Копируем docker-compose.yml (он общий для всех)
       - name: Copy docker-compose.yml to server
         run: |
           scp trip-builder/docker-compose.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/docker-compose.yml
 
-      # Копируем папки сервисов с их .env файлами
-      - name: Copy service directories to server
+      # Копируем .env файлы для каждого сервиса (из репозитория)
+      - name: Copy env files to server
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services"
-          scp -r trip-builder/services/auth ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/
-          scp -r trip-builder/services/user ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/
+          scp trip-builder/services/auth/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/auth/.env
+          scp trip-builder/services/user/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/user/.env
 
-      - name: Create .env file on server
+      - name: Create docker-compose .env file on server
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
-          # Общие переменные для docker-compose
           AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
           USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
           CONTOUR=${{ env.CONTOUR }}
@@ -217,31 +190,19 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
           
             # Login to GitHub Container Registry
-            echo "Logging in to GHCR..."
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
           
             # Pull latest images
-            echo "Pulling latest images..."
             docker-compose pull
           
             # Stop and remove old containers
-            echo "Stopping old containers..."
             docker-compose down --remove-orphans || true
           
             # Start new containers
-            echo "Starting new containers..."
             docker-compose up -d
           
-            # Clean up old images
-            echo "Cleaning up old images..."
             docker image prune -f
           EOF
-
-      - name: Verify deployment
-        run: |
-          sleep 10
-          echo "✅ Deployment completed"
-          # Здесь можно добавить health check, когда будут готовы эндпоинты
 
   configure-nginx:
     name: Configure Nginx
@@ -273,19 +234,6 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
           
-            # Create symlink if not exists
-            if [ ! -L ${{ env.NGINX_APPS_ENABLED }} ]; then
-              sudo ln -s ${{ env.NGINX_APPS_AVAILABLE }} ${{ env.NGINX_APPS_ENABLED }}
-              echo "Created symlink for nginx config"
-            fi
-          
-            # Test nginx configuration
-            echo "Testing nginx configuration..."
-            sudo nginx -t
-          
-            # Reload nginx if test passed
-            echo "Reloading nginx..."
-            sudo systemctl reload nginx || sudo systemctl restart nginx
-          
-            echo "Nginx configuration applied successfully"
+            sudo ln -sf ${{ env.NGINX_APPS_AVAILABLE }} ${{ env.NGINX_APPS_ENABLED }}
+            sudo nginx -t && sudo systemctl reload nginx
           EOF
