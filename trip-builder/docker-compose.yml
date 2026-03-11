@@ -6,7 +6,7 @@ services:
       context: services/auth/
       dockerfile: Dockerfile
     image: ${AUTH_IMAGE:-trip-builder-auth:local}
-    container_name: trip-builder-auth
+    container_name: ${AUTH_CONTAINER_NAME:-trip-builder-backend-auth}
     env_file:
       - services/auth/.env
     ports:
@@ -20,7 +20,7 @@ services:
       context: services/user/
       dockerfile: Dockerfile
     image: ${USER_IMAGE:-trip-builder-user:local}
-    container_name: trip-builder-user
+    container_name: ${USER_CONTAINER_NAME:-trip-builder-backend-user}
     env_file:
       - services/user/.env
     ports:

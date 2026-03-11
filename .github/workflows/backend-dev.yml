@@ -15,6 +15,8 @@ env:
   CONTOUR: development
   AUTH_PORT: 9101
   USER_PORT: 9102
+  AUTH_CONTAINER_NAME: trip-builder-backend-auth
+  USER_CONTAINER_NAME: trip-builder-backend-user
 
 jobs:
   test-and-build:
@@ -186,6 +188,8 @@ jobs:
           AUTH_PORT=${{ env.AUTH_PORT }}
           USER_PORT=${{ env.USER_PORT }}
           CONTOUR=${{ env.CONTOUR }}
+          AUTH_CONTAINER_NAME=${{ env.AUTH_CONTAINER_NAME }}
+          USER_CONTAINER_NAME=${{ env.USER_CONTAINER_NAME }}
           EOF"
 
       - name: Deploy on server
