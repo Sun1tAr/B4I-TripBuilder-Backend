@@ -19,14 +19,24 @@ jobs:
       deploy_path: /opt/trip-builder/test
       nginx_conf_source: .docker/nginx-backend-test.conf
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-test.conf
+
       services: '["auth", "user", "gateway"]'
-      # Передаём порты и имена контейнеров - ПРЯМЫМИ ЗНАЧЕНИЯМИ
+
       auth_port: 9001
       auth_container_name: trip-builder-backend-auth-test
+
       user_port: 9002
       user_container_name: trip-builder-backend-user-test
+
       gateway_port: 9010
       gateway_container_name: trip-builder-backend-gateway-test
+
+      postgres_port: 5432
+      postgres_container_name: postgres-test
+      postgres_user: auth_user
+      postgres_password: auth_pass_test
+      postgres_database_name: trip-builder
+
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}

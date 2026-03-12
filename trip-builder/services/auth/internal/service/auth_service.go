@@ -119,7 +119,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 // Refresh обновление access token по refresh token
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string, string, error) {
-	s.log.Debug("Refresh: поиск токена в БД", "token", refreshToken)
+	//s.log.Debug("Refresh: поиск токена в БД", "token", refreshToken)
 
 	token, err := s.tokenRepo.GetByToken(ctx, refreshToken)
 	if err != nil {
@@ -131,21 +131,21 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 		return "", "", ErrInvalidToken
 	}
 
-	s.log.Debug("Refresh: токен найден",
-		"token_id", token.ID,
-		"user_id", token.UserID,
-		"expires_at", token.ExpiresAt,
-		"revoked", token.Revoked,
-		"created_at", token.CreatedAt,
-	)
+	//s.log.Debug("Refresh: токен найден",
+	//	"token_id", token.ID,
+	//	"user_id", token.UserID,
+	//	"expires_at", token.ExpiresAt,
+	//	"revoked", token.Revoked,
+	//	"created_at", token.CreatedAt,
+	//)
 
 	// Проверяем, не истёк ли
 	now := time.Now()
-	s.log.Debug("Refresh: проверка срока действия",
-		"now", now,
-		"expires_at", token.ExpiresAt,
-		"is_expired", now.After(token.ExpiresAt),
-	)
+	//s.log.Debug("Refresh: проверка срока действия",
+	//	"now", now,
+	//	"expires_at", token.ExpiresAt,
+	//	"is_expired", now.After(token.ExpiresAt),
+	//)
 
 	if now.After(token.ExpiresAt) {
 		s.log.Info("Refresh: токен истёк, отзываем", "token_id", token.ID, "user_id", token.UserID)
@@ -154,13 +154,12 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 	}
 
 	// Проверяем, не отозван ли
-	s.log.Debug("Refresh: проверка статуса revoked", "revoked", token.Revoked)
 	if token.Revoked {
 		s.log.Warn("Refresh: токен отозван", "token_id", token.ID, "user_id", token.UserID)
 		return "", "", ErrTokenRevoked
 	}
 
-	s.log.Debug("Refresh: токен валиден, отзываем старый", "token_id", token.ID)
+
 	// Отзываем старый refresh token
 	if err := s.tokenRepo.Revoke(ctx, refreshToken); err != nil {
 		s.log.Error("Refresh: ошибка при отзыве старого токена", "error", err, "token_id", token.ID)
@@ -168,24 +167,18 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 	}
 
 	// Генерируем новые токены
-	s.log.Debug("Refresh: генерация нового access token", "user_id", token.UserID)
 	accessToken, err := s.generateAccessToken(token.UserID)
 	if err != nil {
 		s.log.Error("Refresh: ошибка генерации access token", "error", err, "user_id", token.UserID)
 		return "", "", err
 	}
 
-	s.log.Debug("Refresh: генерация нового refresh token", "user_id", token.UserID)
 	newRefreshToken, err := s.generateRefreshToken(ctx, token.UserID)
 	if err != nil {
 		s.log.Error("Refresh: ошибка генерации refresh token", "error", err, "user_id", token.UserID)
 		return "", "", err
 	}
 
-	s.log.Info("Refresh: токены успешно обновлены",
-		"old_token_id", token.ID,
-		"user_id", token.UserID,
-	)
 
 	return accessToken, newRefreshToken, nil
 }

@@ -67,13 +67,7 @@ func (r *RefreshTokenRepository) GetByToken(ctx context.Context, token string) (
 		return nil, err
 	}
 
-	r.log.Debug("RefreshTokenRepo: токен найден",
-		"id", rt.ID,
-		"user_id", rt.UserID,
-		"expires_at", rt.ExpiresAt,
-		"revoked", rt.Revoked,
-		"created_at", rt.CreatedAt,
-	)
+
 	return rt, nil
 }
 
@@ -86,8 +80,7 @@ func (r *RefreshTokenRepository) Revoke(ctx context.Context, token string) error
 		r.log.Error("RefreshTokenRepo: ошибка отзыва токена", "error", err, "token", token)
 		return err
 	}
-	rows, _ := result.RowsAffected()
-	r.log.Debug("RefreshTokenRepo: токен отозван", "token", token, "rows_affected", rows)
+	_, _ = result.RowsAffected()
 	return nil
 }
 
@@ -100,8 +93,7 @@ func (r *RefreshTokenRepository) RevokeAllForUser(ctx context.Context, userID uu
 		r.log.Error("RefreshTokenRepo: ошибка отзыва всех токенов", "error", err, "user_id", userID)
 		return err
 	}
-	rows, _ := result.RowsAffected()
-	r.log.Debug("RefreshTokenRepo: все токены пользователя отозваны", "user_id", userID, "rows_affected", rows)
+	_, _ = result.RowsAffected()
 	return nil
 }
 
