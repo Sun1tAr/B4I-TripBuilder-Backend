@@ -36,10 +36,12 @@ type Config struct {
 
 	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
 
+	// Health check interval (например, 30s, 1m, 5m)
+	HealthCheckInterval time.Duration `envconfig:"HEALTH_CHECK_INTERVAL" default:"30s"`
+
 	Services ServiceConfig
 }
 
-// GetLogLevel преобразует строковый уровень лога в slog.Level
 func (c *Config) GetLogLevel() slog.Level {
 	switch strings.ToLower(c.LogLevel) {
 	case "trace":

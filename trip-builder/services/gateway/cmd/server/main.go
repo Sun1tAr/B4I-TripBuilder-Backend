@@ -10,6 +10,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/handlers"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/health"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/middleware"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/gorilla/mux"
@@ -28,6 +29,12 @@ func main() {
 	})
 
 	log.Info("Запуск API Gateway", "port", cfg.HTTPPort)
+
+	// Запускаем health checker в фоне
+	checker := health.NewChecker(cfg, log)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go checker.Start(ctx)
 
 	r := mux.NewRouter()
 
@@ -147,10 +154,12 @@ func main() {
 	<-done
 	log.Info("Получен сигнал завершения, останавливаемся")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	cancel() // останавливаем health checker
 
-	if err := srv.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("Ошибка при graceful shutdown", "error", err)
 	}
 
