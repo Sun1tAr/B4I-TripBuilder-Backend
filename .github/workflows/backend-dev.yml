@@ -13,10 +13,18 @@ env:
   NGINX_APPS_AVAILABLE: /etc/nginx/apps-available/trip-builder-backend-dev.conf
   NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/trip-builder-backend-dev.conf
   CONTOUR: development
+
+  # Auth service
   AUTH_PORT: 9101
-  USER_PORT: 9102
   AUTH_CONTAINER_NAME: trip-builder-backend-auth-dev
+
+  # User service
+  USER_PORT: 9102
   USER_CONTAINER_NAME: trip-builder-backend-user-dev
+
+  # Gateway service
+  GATEWAY_PORT: 9110
+  GATEWAY_CONTAINER_NAME: trip-builder-backend-gateway-dev
 
 jobs:
   test-and-build:
@@ -46,6 +54,14 @@ jobs:
           go mod vendor
           go test ./... -v || true
 
+      - name: Upload Auth vendor
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-vendor
+          path: trip-builder/services/auth/vendor/
+          retention-days: 1
+
+
       # User service
       - name: Prepare User vendor
         working-directory: ./trip-builder/services/user
@@ -54,19 +70,27 @@ jobs:
           go mod vendor
           go test ./... -v || true
 
-      # Сохраняем vendor для Docker сборки
-      - name: Upload Auth vendor
-        uses: actions/upload-artifact@v4
-        with:
-          name: auth-vendor
-          path: trip-builder/services/auth/vendor/
-          retention-days: 1
 
       - name: Upload User vendor
         uses: actions/upload-artifact@v4
         with:
           name: user-vendor
           path: trip-builder/services/user/vendor/
+          retention-days: 1
+
+      # Gateway service
+      - name: Prepare Gateway vendor
+        working-directory: ./trip-builder/services/gateway
+        run: |
+          go mod download
+          go mod vendor
+          go test ./... -v || true
+
+      - name: Upload Gateway vendor
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-vendor
+          path: trip-builder/services/gateway/vendor/
           retention-days: 1
 
   docker-build:
@@ -89,18 +113,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Скачиваем vendor из предыдущей job
+      # Auth service
       - name: Download Auth vendor
         uses: actions/download-artifact@v4
         with:
           name: auth-vendor
           path: trip-builder/services/auth/vendor/
 
+      # User service
       - name: Download User vendor
         uses: actions/download-artifact@v4
         with:
           name: user-vendor
           path: trip-builder/services/user/vendor/
+
+      # Gateway service
+      - name: Download Gateway vendor
+        uses: actions/download-artifact@v4
+        with:
+          name: gateway-vendor
+          path: trip-builder/services/gateway/vendor/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -112,6 +144,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Auth service
       - name: Build and push Auth Docker image
         uses: docker/build-push-action@v5
         with:
@@ -120,10 +153,11 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:dev-latest
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:test-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # User service
       - name: Build and push User Docker image
         uses: docker/build-push-action@v5
         with:
@@ -132,7 +166,20 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:dev-latest
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:test-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Gateway service
+      - name: Build and push Gateway Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./trip-builder/services/gateway
+          file: ./trip-builder/services/gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:test-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -174,22 +221,32 @@ jobs:
           scp trip-builder/docker-compose.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/docker-compose.yml
 
       # Копируем .env файлы для каждого сервиса
+      # Auth service
+      # User service
+      # Gateway service
       - name: Copy env files to server
         run: |
           scp trip-builder/services/auth/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/auth/.env
           scp trip-builder/services/user/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/user/.env
+          scp trip-builder/services/gateway/.env.${{ env.CONTOUR }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/gateway/.env
 
-      # Создаем .env файл для docker-compose с образами из GHCR и портами dev
+      # Создаем .env файл для docker-compose с образами из GHCR и портами тest
+      # Auth service
+      # User service
+      # Gateway service
       - name: Create docker-compose .env file on server
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
-          AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
-          USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
-          AUTH_PORT=${{ env.AUTH_PORT }}
-          USER_PORT=${{ env.USER_PORT }}
           CONTOUR=${{ env.CONTOUR }}
+          AUTH_PORT=${{ env.AUTH_PORT }}
           AUTH_CONTAINER_NAME=${{ env.AUTH_CONTAINER_NAME }}
+          AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
+          USER_PORT=${{ env.USER_PORT }}
           USER_CONTAINER_NAME=${{ env.USER_CONTAINER_NAME }}
+          USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
+          GATEWAY_PORT=${{ env.GATEWAY_PORT }}
+          GATEWAY_CONTAINER_NAME=${{ env.GATEWAY_CONTAINER_NAME }}
+          GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:${{ github.sha }}
           EOF"
 
       - name: Deploy on server
