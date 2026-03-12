@@ -37,6 +37,8 @@ jobs:
       postgres_password: auth_pass_dev
       postgres_database_name: trip-builder
 
+      redis_port: 6369
+
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}

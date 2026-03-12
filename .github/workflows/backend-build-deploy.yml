@@ -85,6 +85,12 @@ on:
         type: string
 
 
+      redis_port:
+        description: 'Redis port'
+        required: true
+        type: string
+
+
 
 env:
   GO_VERSION: '1.23'
@@ -108,6 +114,9 @@ env:
   POSTGRES_USER: ${{ inputs.postgres_user }}
   POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
   POSTGRES_DB: ${{ inputs.postgres_database_name }}
+
+  REDIS_PORT: ${{ inputs.redis_port }}
+
 jobs:
   test-and-build:
     name: Test and Build
@@ -259,6 +268,13 @@ jobs:
           GATEWAY_PORT=${{ inputs.gateway_port }}
           GATEWAY_CONTAINER_NAME=${{ inputs.gateway_container_name }}
           GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:${{ github.sha }}
+          POSTGRES_PORT: ${{ inputs.postgres_port }}
+          POSTGRES_CONTAINER_NAME: ${{ inputs.postgres_container_name }}
+          POSTGRES_USER: ${{ inputs.postgres_user }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
+          POSTGRES_DB: ${{ inputs.postgres_database_name }}
+  
+          REDIS_PORT: ${{ inputs.redis_port }}
           EOF"
 
       - name: Deploy on server
