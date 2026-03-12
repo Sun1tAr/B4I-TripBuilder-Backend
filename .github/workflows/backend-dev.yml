@@ -10,18 +10,6 @@ permissions:
   contents: read
   packages: write
 
-env:
-  # Auth service
-  AUTH_PORT: 9101
-  AUTH_CONTAINER_NAME: trip-builder-backend-auth-dev
-
-  # User service
-  USER_PORT: 9102
-  USER_CONTAINER_NAME: trip-builder-backend-user-dev
-
-  # Gateway service
-  GATEWAY_PORT: 9110
-  GATEWAY_CONTAINER_NAME: trip-builder-backend-gateway-dev
 
 jobs:
   call-build-deploy:
@@ -32,13 +20,13 @@ jobs:
       nginx_conf_source: .docker/nginx-backend-dev.conf
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-dev.conf
       services: '["auth", "user", "gateway"]'
-      # Передаём порты и имена контейнеров
-      auth_port: ${{ env.AUTH_PORT }}
-      auth_container_name: ${{ env.AUTH_CONTAINER_NAME }}
-      user_port: ${{ env.USER_PORT }}
-      user_container_name: ${{ env.USER_CONTAINER_NAME }}
-      gateway_port: ${{ env.GATEWAY_PORT }}
-      gateway_container_name: ${{ env.GATEWAY_CONTAINER_NAME }}
+      # Передаём порты и имена контейнеров - ПРЯМЫМИ ЗНАЧЕНИЯМИ
+      auth_port: 9101
+      auth_container_name: trip-builder-backend-auth-dev
+      user_port: 9102
+      user_container_name: trip-builder-backend-user-dev
+      gateway_port: 9110
+      gateway_container_name: trip-builder-backend-gateway-dev
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
