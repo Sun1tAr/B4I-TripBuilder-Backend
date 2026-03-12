@@ -2,6 +2,15 @@ name: Backend Build and Deploy (Reusable)
 
 on:
   workflow_call:
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+
+
     inputs:
       contour:
         description: 'Environment contour (development/production)'
@@ -23,6 +32,8 @@ on:
         description: 'JSON array of service names'
         required: true
         type: string
+
+
       # Порты и имена контейнеров
       auth_port:
         description: 'Auth service port'
@@ -32,6 +43,7 @@ on:
         description: 'Auth container name'
         required: true
         type: string
+
       user_port:
         description: 'User service port'
         required: true
@@ -40,6 +52,7 @@ on:
         description: 'User container name'
         required: true
         type: string
+
       gateway_port:
         description: 'Gateway service port'
         required: true
@@ -48,13 +61,56 @@ on:
         description: 'Gateway container name'
         required: true
         type: string
-    secrets:
-      SSH_PRIVATE_KEY:
+
+
+      postgres_port:
+        description: 'Postgres port'
         required: true
-      SSH_HOST:
+        type: string
+      postgres_container_name:
+        description: 'Postgres container name'
         required: true
-      SSH_USER:
+        type: string
+      postgres_user:
+        description: 'Postgres auth username'
         required: true
+        type: string
+      postgres_password:
+        description: 'Postgres auth password'
+        required: true
+        type: string
+      postgres_database_name:
+        description: 'Postgres database name'
+        required: true
+        type: string
+
+
+      redis_port:
+        description: 'Redis port'
+        required: true
+        type: string
+      redis_container_name:
+        description: 'Redis container name'
+        required: true
+        type: string
+
+      zookeeper_container_name:
+        description: 'Zookeeper container name'
+        required: true
+        type: string
+      zookeeper_port:
+        description: 'Zookeeper port'
+        required: true
+        type: string
+      kafka_container_name:
+        description: 'Kafka container name'
+        required: true
+        type: string
+      kafka_port:
+        description: 'Kafka port'
+        required: true
+        type: string
+
 
 env:
   GO_VERSION: '1.23'
@@ -63,13 +119,29 @@ env:
   DEPLOY_PATH: ${{ inputs.deploy_path }}
   NGINX_APPS_AVAILABLE: ${{ inputs.nginx_conf_target }}
   NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/$(basename ${{ inputs.nginx_conf_target }})
-  # Пробрасываем порты и имена контейнеров
+
   AUTH_PORT: ${{ inputs.auth_port }}
   AUTH_CONTAINER_NAME: ${{ inputs.auth_container_name }}
+
   USER_PORT: ${{ inputs.user_port }}
   USER_CONTAINER_NAME: ${{ inputs.user_container_name }}
+
   GATEWAY_PORT: ${{ inputs.gateway_port }}
   GATEWAY_CONTAINER_NAME: ${{ inputs.gateway_container_name }}
+
+  POSTGRES_PORT: ${{ inputs.postgres_port }}
+  POSTGRES_CONTAINER_NAME: ${{ inputs.postgres_container_name }}
+  POSTGRES_USER: ${{ inputs.postgres_user }}
+  POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
+  POSTGRES_DB: ${{ inputs.postgres_database_name }}
+
+  REDIS_PORT: ${{ inputs.redis_port }}
+  REDIS_CONTAINER_NAME: ${{ inputs.redis_container_name }}
+
+  ZOOKEEPER_CONTAINER_NAME: ${{  inputs.zookeeper_container_name  }}
+  ZOOKEEPER_PORT: ${{  inputs.zookeeper_port  }}
+  KAFKA_CONTAINER_NAME: ${{  inputs.kafka_container_name  }}
+  KAFKA_PORT: ${{  inputs.kafka_port  }}
 
 jobs:
   test-and-build:
@@ -208,6 +280,7 @@ jobs:
               ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/$service/.env
           done
 
+        # Переменные композы
       - name: Create docker-compose .env file on server
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
@@ -221,6 +294,13 @@ jobs:
           GATEWAY_PORT=${{ inputs.gateway_port }}
           GATEWAY_CONTAINER_NAME=${{ inputs.gateway_container_name }}
           GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:${{ github.sha }}
+          POSTGRES_PORT: ${{ inputs.postgres_port }}
+          POSTGRES_CONTAINER_NAME: ${{ inputs.postgres_container_name }}
+          POSTGRES_USER: ${{ inputs.postgres_user }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
+          POSTGRES_DB: ${{ inputs.postgres_database_name }}
+          REDIS_PORT= ${{ inputs.redis_port }}
+          REDIS_CONTAINER_NAME= ${{ inputs.redis_container_name }}
           EOF"
 
       - name: Deploy on server

@@ -19,14 +19,33 @@ jobs:
       deploy_path: /opt/trip-builder/dev
       nginx_conf_source: .docker/nginx-backend-dev.conf
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-dev.conf
+
       services: '["auth", "user", "gateway"]'
-      # Передаём порты и имена контейнеров - ПРЯМЫМИ ЗНАЧЕНИЯМИ
+
       auth_port: 9101
       auth_container_name: trip-builder-backend-auth-dev
+
       user_port: 9102
       user_container_name: trip-builder-backend-user-dev
+
       gateway_port: 9110
       gateway_container_name: trip-builder-backend-gateway-dev
+
+      postgres_port: 5422
+      postgres_container_name: postgres-dev
+      postgres_user: auth_user
+      postgres_password: auth_pass_dev
+      postgres_database_name: trip-builder
+
+      redis_port: 6369
+      redis_container_name: redis-dev
+
+      zookeeper_container_name: zookeeper-dev
+      zookeeper_port: 2171
+      kafka_container_name: kafka-dev
+      kafka_port: 9082
+
+
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
