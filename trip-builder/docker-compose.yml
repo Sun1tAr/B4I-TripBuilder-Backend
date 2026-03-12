@@ -38,6 +38,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   user:
@@ -70,6 +72,20 @@ services:
     depends_on:
       - auth
       - user
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${REDIS_CONTAINER_NAME:-trip-builder-backend-redis}
+    ports:
+      - "${REDIS_PORT:-6379}:6379" # todo
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   trip-builder-network:

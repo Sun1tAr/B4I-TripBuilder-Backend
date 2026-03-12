@@ -13,6 +13,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/middleware"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
@@ -50,6 +51,17 @@ func main() {
 	}
 	log.Info("Подключение к БД установлено", "schema", cfg.Database.Schema)
 
+	// Подключение к Redis для rate limiting
+	rateLimiter := ratelimit.NewRateLimiter(
+		cfg.Redis.Addr,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		cfg.RateLimitLogin,
+		cfg.RateLimitWindow,
+		log,
+	)
+	defer rateLimiter.Close()
+
 	// Инициализация репозиториев
 	userRepo := postgres.NewUserRepository(db, cfg.Database.Schema)
 	tokenRepo := postgres.NewRefreshTokenRepository(db, cfg.Database.Schema, log)
@@ -58,7 +70,7 @@ func main() {
 	authService := service.NewAuthService(cfg, userRepo, tokenRepo, log)
 
 	// Инициализация хендлеров
-	authHandler := handlers.NewAuthHandler(authService, log)
+	authHandler := handlers.NewAuthHandler(authService, rateLimiter, log)
 
 	// Роутер
 	r := mux.NewRouter()
@@ -83,7 +95,7 @@ func main() {
 	protected.Use(middleware.Auth(cfg.JWTSecret))
 	protected.HandleFunc("/logout", authHandler.Logout).Methods("POST")
 	protected.HandleFunc("/me", authHandler.GetMe).Methods("GET")
-	protected.HandleFunc("/validate", authHandler.Validate).Methods("GET") // для gateway
+	protected.HandleFunc("/validate", authHandler.Validate).Methods("GET")
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)
