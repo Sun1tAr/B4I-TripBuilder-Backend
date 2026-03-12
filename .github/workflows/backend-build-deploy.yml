@@ -23,6 +23,31 @@ on:
         description: 'JSON array of service names'
         required: true
         type: string
+      # Порты и имена контейнеров
+      auth_port:
+        description: 'Auth service port'
+        required: true
+        type: string
+      auth_container_name:
+        description: 'Auth container name'
+        required: true
+        type: string
+      user_port:
+        description: 'User service port'
+        required: true
+        type: string
+      user_container_name:
+        description: 'User container name'
+        required: true
+        type: string
+      gateway_port:
+        description: 'Gateway service port'
+        required: true
+        type: string
+      gateway_container_name:
+        description: 'Gateway container name'
+        required: true
+        type: string
     secrets:
       SSH_PRIVATE_KEY:
         required: true
@@ -38,6 +63,13 @@ env:
   DEPLOY_PATH: ${{ inputs.deploy_path }}
   NGINX_APPS_AVAILABLE: ${{ inputs.nginx_conf_target }}
   NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/$(basename ${{ inputs.nginx_conf_target }})
+  # Пробрасываем порты и имена контейнеров
+  AUTH_PORT: ${{ inputs.auth_port }}
+  AUTH_CONTAINER_NAME: ${{ inputs.auth_container_name }}
+  USER_PORT: ${{ inputs.user_port }}
+  USER_CONTAINER_NAME: ${{ inputs.user_container_name }}
+  GATEWAY_PORT: ${{ inputs.gateway_port }}
+  GATEWAY_CONTAINER_NAME: ${{ inputs.gateway_container_name }}
 
 jobs:
   test-and-build:
@@ -85,7 +117,7 @@ jobs:
     if: github.event.pull_request.merged == true
     permissions:
       contents: read
-      packages: write  # ← важно! разрешаем запись в пакеты
+      packages: write
 
     strategy:
       matrix:
@@ -178,23 +210,18 @@ jobs:
 
       - name: Create docker-compose .env file on server
         run: |
-          # Собираем переменные для всех сервисов
-          ENV_CONTENT="CONTOUR=${{ inputs.contour }}\n"
-          
-          for service in $(echo '${{ inputs.services }}' | jq -r '.[]'); do
-            SERVICE_UPPER=$(echo "$service" | tr '[:lower:]' '[:upper:]')
-          
-            # Получаем значения из env (они должны быть определены в вызывающем workflow)
-            PORT_VAR="${SERVICE_UPPER}_PORT"
-            CONTAINER_VAR="${SERVICE_UPPER}_CONTAINER_NAME"
-          
-            # Добавляем в .env файл
-            ENV_CONTENT="${ENV_CONTENT}${PORT_VAR}=${!PORT_VAR}\n"
-            ENV_CONTENT="${ENV_CONTENT}${CONTAINER_VAR}=${!CONTAINER_VAR}\n"
-            ENV_CONTENT="${ENV_CONTENT}${SERVICE_UPPER}_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/$service:${{ github.sha }}\n"
-          done
-          
-          echo -e "$ENV_CONTENT" | ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env"
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
+          CONTOUR=${{ inputs.contour }}
+          AUTH_PORT=${{ inputs.auth_port }}
+          AUTH_CONTAINER_NAME=${{ inputs.auth_container_name }}
+          AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
+          USER_PORT=${{ inputs.user_port }}
+          USER_CONTAINER_NAME=${{ inputs.user_container_name }}
+          USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
+          GATEWAY_PORT=${{ inputs.gateway_port }}
+          GATEWAY_CONTAINER_NAME=${{ inputs.gateway_container_name }}
+          GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:${{ github.sha }}
+          EOF"
 
       - name: Deploy on server
         run: |
