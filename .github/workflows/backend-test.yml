@@ -6,10 +6,9 @@ on:
     branches:
       - release
 
-# Добавляем глобальные permissions для всего workflow
 permissions:
   contents: read
-  packages: write  # ← важно! разрешаем запись в пакеты
+  packages: write
 
 env:
   # Auth service
@@ -33,6 +32,13 @@ jobs:
       nginx_conf_source: .docker/nginx-backend-test.conf
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-test.conf
       services: '["auth", "user", "gateway"]'
+      # Передаём порты и имена контейнеров
+      auth_port: ${{ env.AUTH_PORT }}
+      auth_container_name: ${{ env.AUTH_CONTAINER_NAME }}
+      user_port: ${{ env.USER_PORT }}
+      user_container_name: ${{ env.USER_CONTAINER_NAME }}
+      gateway_port: ${{ env.GATEWAY_PORT }}
+      gateway_container_name: ${{ env.GATEWAY_CONTAINER_NAME }}
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
