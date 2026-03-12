@@ -6,6 +6,11 @@ on:
     branches:
       - release
 
+# Добавляем глобальные permissions для всего workflow
+permissions:
+  contents: read
+  packages: write  # ← важно! разрешаем запись в пакеты
+
 env:
   # Auth service
   AUTH_PORT: 9001
@@ -32,4 +37,3 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
-      # GITHUB_TOKEN убран
