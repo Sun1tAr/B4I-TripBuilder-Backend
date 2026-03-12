@@ -210,9 +210,12 @@ jobs:
       - name: Add host to known_hosts
         run: ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
+      # Auth service
+      # User service
+      # Gateway service
       - name: Create deploy directories on server
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services/auth ${{ env.DEPLOY_PATH }}/services/user"
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services/auth ${{ env.DEPLOY_PATH }}/services/user ${{ env.DEPLOY_PATH }}/services/gateway"
 
       - name: Copy docker-compose.yml to server
         run: |
