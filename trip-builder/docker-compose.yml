@@ -1,6 +1,28 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ${POSTGRES_CONTAINER_NAME:-trip-builder-backend-postgres}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-trip-builder}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/auth/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - trip-builder-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-trip-builder}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   auth:
     build:
       context: services/auth/
@@ -13,6 +35,9 @@ services:
       - "${AUTH_PORT:-8081}:8081"
     networks:
       - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   user:
@@ -49,3 +74,7 @@ services:
 networks:
   trip-builder-network:
     driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

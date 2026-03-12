@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,11 +10,15 @@ import (
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/config"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/middleware"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
+	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -22,37 +27,78 @@ func main() {
 	cfg := config.MustLoad()
 
 	log := logger.New(logger.Options{
-		Level:       cfg.LogLevel(),
+		Level:       cfg.GetLogLevel(),
 		ServiceName: cfg.ServiceName,
 		Format:      cfg.LogFormat,
 	})
 
-	log.Info("Запуск сервиса", "port", cfg.HTTPPort)
+	// Подключение к БД
+	db, err := sql.Open("postgres", cfg.Database.DSN())
+	if err != nil {
+		log.Error("Ошибка подключения к БД", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
-	// Создаём главный роутер
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	if err := db.Ping(); err != nil {
+		log.Error("БД недоступна", "error", err)
+		os.Exit(1)
+	}
+	log.Info("Подключение к БД установлено", "schema", cfg.Database.Schema)
+
+	// Инициализация репозиториев
+	userRepo := postgres.NewUserRepository(db, cfg.Database.Schema)
+	tokenRepo := postgres.NewRefreshTokenRepository(db, cfg.Database.Schema, log)
+
+	// Инициализация сервиса
+	authService := service.NewAuthService(cfg, userRepo, tokenRepo, log)
+
+	// Инициализация хендлеров
+	authHandler := handlers.NewAuthHandler(authService, log)
+
+	// Роутер
 	r := mux.NewRouter()
 
-	// Публичные health-эндпоинты (без префикса)
+	// Публичные health-эндпоинты
 	r.HandleFunc("/health", handlers.Health).Methods("GET")
 	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
 
-	// Подроутер для API v1 с префиксом /api/v1/auth
-	apiRouter := r.PathPrefix("/api/v1/auth").Subrouter()
-	apiRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+	// API роутер с префиксом /api/v1/auth
+	api := r.PathPrefix("/api/v1/auth").Subrouter()
 
-	// Применяем middleware ко всему роутеру (включая API и health)
-	handler := middleware.RequestID(r)
-	handler = middleware.Logging(log)(handler)
-	handler = middleware.Recover(log)(handler)
+	// Публичные маршруты (без аутентификации)
+	api.HandleFunc("/register", authHandler.Register).Methods("POST")
+	api.HandleFunc("/login", authHandler.Login).Methods("POST")
+	api.HandleFunc("/refresh", authHandler.Refresh).Methods("POST")
+	api.HandleFunc("/verify/{token}", authHandler.VerifyEmail).Methods("GET")
+	api.HandleFunc("/reset-password", authHandler.RequestPasswordReset).Methods("POST")
+	api.HandleFunc("/reset-password/{token}", authHandler.ResetPassword).Methods("POST")
+
+	// Защищённые маршруты (требуют JWT)
+	protected := api.PathPrefix("").Subrouter()
+	protected.Use(middleware.Auth(cfg.JWTSecret))
+	protected.HandleFunc("/logout", authHandler.Logout).Methods("POST")
+	protected.HandleFunc("/me", authHandler.GetMe).Methods("GET")
+	protected.HandleFunc("/validate", authHandler.Validate).Methods("GET") // для gateway
+
+	// Общие middleware
+	handler := sharedMiddleware.RequestID(r)
+	handler = sharedMiddleware.Logging(log)(handler)
+	handler = sharedMiddleware.Recover(log)(handler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
 		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Graceful shutdown
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
@@ -67,7 +113,7 @@ func main() {
 	<-done
 	log.Info("Получен сигнал завершения, останавливаемся")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
