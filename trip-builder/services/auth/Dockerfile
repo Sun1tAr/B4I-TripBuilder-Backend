@@ -41,8 +41,6 @@ USER appuser
 
 # Expose ports
 EXPOSE 8081
-EXPOSE 9001
-EXPOSE 9101
 
 # Command to run
 CMD ["/app/auth"]

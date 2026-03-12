@@ -41,8 +41,6 @@ USER appuser
 
 # Expose port
 EXPOSE 8082
-EXPOSE 9002
-EXPOSE 9102
 
 # Command to run
 CMD ["/app/user"]

@@ -29,7 +29,22 @@ services:
       - trip-builder-network
     restart: unless-stopped
 
-
+  gateway:
+    build:
+      context: services/gateway/
+      dockerfile: Dockerfile
+    image: ${GATEWAY_IMAGE:-trip-builder-gateway:local}
+    container_name: ${GATEWAY_CONTAINER_NAME:-trip-builder-backend-gateway}
+    env_file:
+      - services/gateway/.env
+    ports:
+      - "${GATEWAY_PORT:-8090}:8090"
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+    depends_on:
+      - auth
+      - user
 
 networks:
   trip-builder-network:
