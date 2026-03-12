@@ -30,7 +30,6 @@ on:
         required: true
       SSH_USER:
         required: true
-      # GITHUB_TOKEN УБРАН - он доступен автоматически
 
 env:
   GO_VERSION: '1.23'
@@ -47,6 +46,7 @@ jobs:
     if: github.event.pull_request.merged == true
     permissions:
       contents: read
+      packages: read
 
     strategy:
       matrix:
@@ -85,7 +85,7 @@ jobs:
     if: github.event.pull_request.merged == true
     permissions:
       contents: read
-      packages: write
+      packages: write  # ← важно! разрешаем запись в пакеты
 
     strategy:
       matrix:
@@ -116,7 +116,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}  # ← используется напрямую
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.service }} Docker image
         uses: docker/build-push-action@v5
@@ -224,6 +224,7 @@ jobs:
     if: github.event.pull_request.merged == true
     permissions:
       contents: read
+      packages: read
 
     steps:
       - name: Checkout repository
