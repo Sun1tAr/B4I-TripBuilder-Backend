@@ -15,11 +15,15 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/middleware"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/worker"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/health"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -51,16 +55,32 @@ func main() {
 	}
 	log.Info("Подключение к БД установлено", "schema", cfg.Database.Schema)
 
-	// Подключение к Redis для rate limiting
-	rateLimiter := ratelimit.NewRateLimiter(
-		cfg.Redis.Addr,
-		cfg.Redis.Password,
-		cfg.Redis.DB,
-		cfg.RateLimitLogin,
-		cfg.RateLimitWindow,
+	// Подключение к Redis
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+
+	// Проверка Redis при старте
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		log.Error("Redis недоступен", "error", err)
+		// Не выходим, rate limiting будет работать с ошибками
+	} else {
+		log.Info("Подключение к Redis установлено")
+	}
+
+	// Rate limiter
+	rateLimiter := ratelimit.NewRateLimiter(redisClient, cfg.RateLimitLogin, cfg.RateLimitWindow, log)
+
+	// Инициализация Kafka продюсера
+	kafkaProducer := kafka.NewProducer(
+		cfg.Kafka.Brokers,
+		"user-events",
 		log,
 	)
-	defer rateLimiter.Close()
+	defer kafkaProducer.Close()
 
 	// Инициализация репозиториев
 	userRepo := postgres.NewUserRepository(db, cfg.Database.Schema)
@@ -69,8 +89,24 @@ func main() {
 	// Инициализация сервиса
 	authService := service.NewAuthService(cfg, userRepo, tokenRepo, log)
 
+	// Инициализация воркера для очистки токенов (интервал из env)
+	tokenCleaner := worker.NewTokenCleaner(tokenRepo, log, cfg.TokenCleanupInterval)
+	go tokenCleaner.Start(context.Background())
+
+	// Создаём конфиг для health checker'а
+	healthConfig := health.Config{
+		RedisCheckInterval: cfg.RedisHealthInterval,
+		KafkaCheckInterval: cfg.KafkaHealthInterval,
+		KafkaDialTimeout:   cfg.KafkaDialTimeout,
+		RedisPingTimeout:   cfg.RedisPingTimeout,
+	}
+
+	// Инициализация health checker для Kafka и Redis
+	healthChecker := health.NewChecker(log, redisClient, cfg.Kafka.Brokers, healthConfig)
+	go healthChecker.Start(context.Background())
+
 	// Инициализация хендлеров
-	authHandler := handlers.NewAuthHandler(authService, rateLimiter, log)
+	authHandler := handlers.NewAuthHandler(authService, rateLimiter, kafkaProducer, log)
 
 	// Роутер
 	r := mux.NewRouter()

@@ -1,31 +1,37 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"bytes"
 	"net/http"
+	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers/dto"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/utils"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
 type AuthHandler struct {
-	authService *service.AuthService
-	rateLimiter *ratelimit.RateLimiter
-	log         *logger.Logger
+	authService   *service.AuthService
+	rateLimiter   *ratelimit.RateLimiter
+	kafkaProducer *kafka.Producer
+	log           *logger.Logger
 }
 
-func NewAuthHandler(authService *service.AuthService, rateLimiter *ratelimit.RateLimiter, log *logger.Logger) *AuthHandler {
+func NewAuthHandler(authService *service.AuthService, rateLimiter *ratelimit.RateLimiter, kafkaProducer *kafka.Producer, log *logger.Logger) *AuthHandler {
 	return &AuthHandler{
-		authService: authService,
-		rateLimiter: rateLimiter,
-		log:         log,
+		authService:   authService,
+		rateLimiter:   rateLimiter,
+		kafkaProducer: kafkaProducer,
+		log:           log,
 	}
 }
 
@@ -80,6 +86,22 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Отправляем событие в Kafka асинхронно
+	go func() {
+		event := kafka.Event{
+			EventID:   uuid.New().String(),
+			EventType: "user.created",
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"user_id": user.ID,
+				"email":   user.Email,
+			},
+		}
+		if err := h.kafkaProducer.Publish(context.Background(), event); err != nil {
+			h.log.Error("Ошибка отправки user.created", "error", err, "user_id", user.ID)
+		}
+	}()
+
 	h.log.Info("Пользователь зарегистрирован", "user_id", user.ID)
 	h.writeJSON(w, http.StatusCreated, dto.UserResponse{
 		ID:         user.ID,
@@ -101,8 +123,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("Ошибка rate limiter", "error", err)
 		// Пропускаем запрос при ошибке Redis, но логируем
 	} else if !allowed {
-		// ЕДИНСТВЕННОЕ МЕСТО С ДЕТАЛЬНЫМ ЛОГИРОВАНИЕМ
-		// Здесь логируем IP и информацию о превышении лимита
+		// Единственное место с детальным логированием
 		h.log.Debug("Rate limit exceeded for IP",
 			"ip", ip,
 			"limit", h.rateLimiter.GetLimit(),

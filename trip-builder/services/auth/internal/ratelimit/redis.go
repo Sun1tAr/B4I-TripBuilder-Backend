@@ -12,17 +12,11 @@ import (
 type RateLimiter struct {
 	client *redis.Client
 	log    *logger.Logger
-	limit  int           // максимальное число попыток
-	window time.Duration // окно в секундах
+	limit  int
+	window time.Duration
 }
 
-func NewRateLimiter(redisAddr, redisPassword string, redisDB int, limit int, window time.Duration, log *logger.Logger) *RateLimiter {
-	client := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: redisPassword,
-		DB:       redisDB,
-	})
-
+func NewRateLimiter(client *redis.Client, limit int, window time.Duration, log *logger.Logger) *RateLimiter {
 	return &RateLimiter{
 		client: client,
 		log:    log,
@@ -42,7 +36,6 @@ func (r *RateLimiter) GetWindow() time.Duration {
 func (r *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	redisKey := fmt.Sprintf("rate_limit:login:%s", key)
 
-	// Транзакция: увеличиваем счётчик и устанавливаем TTL при первом обращении
 	pipe := r.client.Pipeline()
 	incr := pipe.Incr(ctx, redisKey)
 	pipe.Expire(ctx, redisKey, r.window)
@@ -61,8 +54,4 @@ func (r *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 func (r *RateLimiter) Reset(ctx context.Context, key string) error {
 	redisKey := fmt.Sprintf("rate_limit:login:%s", key)
 	return r.client.Del(ctx, redisKey).Err()
-}
-
-func (r *RateLimiter) Close() error {
-	return r.client.Close()
 }

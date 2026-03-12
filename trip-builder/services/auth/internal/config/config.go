@@ -22,6 +22,15 @@ type Config struct {
 	RateLimitWindow  time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"1m"`
 	VerificationURL  string        `envconfig:"VERIFICATION_URL" required:"true"`
 	ResetPasswordURL string        `envconfig:"RESET_PASSWORD_URL" required:"true"`
+
+	// Cron интервалы
+	TokenCleanupInterval time.Duration `envconfig:"TOKEN_CLEANUP_INTERVAL" default:"1h"`
+
+	// Health check интервалы
+	RedisHealthInterval  time.Duration `envconfig:"REDIS_HEALTH_INTERVAL" default:"5m"`
+	KafkaHealthInterval  time.Duration `envconfig:"KAFKA_HEALTH_INTERVAL" default:"5m"`
+	KafkaDialTimeout     time.Duration `envconfig:"KAFKA_DIAL_TIMEOUT" default:"3s"`
+	RedisPingTimeout     time.Duration `envconfig:"REDIS_PING_TIMEOUT" default:"3s"`
 }
 
 func (c *Config) GetLogLevel() slog.Level {

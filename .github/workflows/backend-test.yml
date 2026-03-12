@@ -38,6 +38,12 @@ jobs:
       postgres_database_name: trip-builder
 
       redis_port: 6379
+      redis_container_name: redis-test
+
+      zookeeper_container_name: zookeeper-test
+      zookeeper_port: 2181
+      kafka_container_name: kafka-test
+      kafka_port: 9092
 
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}

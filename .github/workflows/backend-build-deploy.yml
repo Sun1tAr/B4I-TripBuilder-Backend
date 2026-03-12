@@ -89,7 +89,27 @@ on:
         description: 'Redis port'
         required: true
         type: string
+      redis_container_name:
+        description: 'Redis container name'
+        required: true
+        type: string
 
+      zookeeper_container_name:
+        description: 'Zookeeper container name'
+        required: true
+        type: string
+      zookeeper_port:
+        description: 'Zookeeper port'
+        required: true
+        type: string
+      kafka_container_name:
+        description: 'Kafka container name'
+        required: true
+        type: string
+      kafka_port:
+        description: 'Kafka port'
+        required: true
+        type: string
 
 
 env:
@@ -116,6 +136,12 @@ env:
   POSTGRES_DB: ${{ inputs.postgres_database_name }}
 
   REDIS_PORT: ${{ inputs.redis_port }}
+  REDIS_CONTAINER_NAME: ${{ inputs.redis_container_name }}
+
+  ZOOKEEPER_CONTAINER_NAME: ${{  inputs.zookeeper_container_name  }}
+  ZOOKEEPER_PORT: ${{  inputs.zookeeper_port  }}
+  KAFKA_CONTAINER_NAME: ${{  inputs.kafka_container_name  }}
+  KAFKA_PORT: ${{  inputs.kafka_port  }}
 
 jobs:
   test-and-build:
@@ -273,8 +299,8 @@ jobs:
           POSTGRES_USER: ${{ inputs.postgres_user }}
           POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
           POSTGRES_DB: ${{ inputs.postgres_database_name }}
-  
-          REDIS_PORT: ${{ inputs.redis_port }}
+          REDIS_PORT= ${{ inputs.redis_port }}
+          REDIS_CONTAINER_NAME= ${{ inputs.redis_container_name }}
           EOF"
 
       - name: Deploy on server
