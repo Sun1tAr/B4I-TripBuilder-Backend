@@ -5,8 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/event"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/media"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
@@ -16,12 +17,21 @@ import (
 
 type ProfileHandler struct {
 	profileService *service.ProfileService
+	mediaClient    *media.Client
+	eventClient    *event.Client
 	log            *logger.Logger
 }
 
-func NewProfileHandler(profileService *service.ProfileService, log *logger.Logger) *ProfileHandler {
+func NewProfileHandler(
+	profileService *service.ProfileService,
+	mediaClient *media.Client,
+	eventClient *event.Client,
+	log *logger.Logger,
+) *ProfileHandler {
 	return &ProfileHandler{
 		profileService: profileService,
+		mediaClient:    mediaClient,
+		eventClient:    eventClient,
 		log:            log,
 	}
 }
@@ -149,25 +159,28 @@ func (h *ProfileHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("avatar") // убрали переменную header
+	file, header, err := r.FormFile("avatar")
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "avatar file is required", "")
 		return
 	}
 	defer file.Close()
 
-	// Читаем файл для проверки
-	_, err = io.ReadAll(file) // присваиваем ошибке, но не используем fileBytes
+	fileBytes, err := io.ReadAll(file)
 	if err != nil {
 		h.writeError(w, http.StatusInternalServerError, "failed to read file", "")
 		return
 	}
 
-	// TODO: отправить файл в Media Service
-	avatarURL := "https://example.com/avatars/" + userID.String() + ".jpg"
+	avatarURL, err := h.mediaClient.UploadAvatar(r.Context(), userID.String(), fileBytes, header.Filename)
+	if err != nil {
+		h.log.Error("Ошибка загрузки аватара в Media Service", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "failed to upload avatar", "")
+		return
+	}
 
 	if err := h.profileService.UpdateAvatar(r.Context(), userID, avatarURL); err != nil {
-		h.log.Error("Ошибка обновления аватара", "error", err, "user_id", userID)
+		h.log.Error("Ошибка обновления аватара в БД", "error", err, "user_id", userID)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 		return
 	}
@@ -175,7 +188,7 @@ func (h *ProfileHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"avatar_url": avatarURL})
 }
 
-// GetUserEvents получение списка событий пользователя (прокси в event-service)
+// GetUserEvents получение списка событий пользователя
 func (h *ProfileHandler) GetUserEvents(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userIDStr := vars["id"]
@@ -186,21 +199,15 @@ func (h *ProfileHandler) GetUserEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: сделать HTTP-вызов в event-service
-	// limit, offset из query params
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
+	events, err := h.eventClient.GetUserEvents(r.Context(), userID.String())
+	if err != nil {
+		h.log.Error("Ошибка получения событий", "error", err, "user_id", userID)
+		// возвращаем пустой список, фолбэк уже отработал
 	}
 
-	// Пока заглушка
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user_id": userID,
-		"events":  []interface{}{},
-		"total":   0,
+		"events":  events,
+		"total":   len(events),
 	})
 }

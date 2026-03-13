@@ -18,14 +18,14 @@ var (
 type ProfileService struct {
 	profileRepo      repository.ProfileRepository
 	statsRepo        repository.StatsRepository
-	achievementRepo  repository.AchievementRepository
+	achievementRepo  repository.AchievementRepository // ← это репозиторий, а не сервис
 	log              *logger.Logger
 }
 
 func NewProfileService(
 	profileRepo repository.ProfileRepository,
 	statsRepo repository.StatsRepository,
-	achievementRepo repository.AchievementRepository,
+	achievementRepo repository.AchievementRepository, // ← репозиторий
 	log *logger.Logger,
 ) *ProfileService {
 	return &ProfileService{

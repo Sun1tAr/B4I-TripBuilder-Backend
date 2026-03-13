@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/event"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/media"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers"
@@ -18,6 +20,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/retry"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -25,7 +28,7 @@ import (
 )
 
 //go:embed migrations/*.sql
-var migrationsFS embed.FS // всё ещё нужно для embed, но в коде не используется напрямую
+var migrationsFS embed.FS
 
 func main() {
 	_ = godotenv.Load()
@@ -59,7 +62,7 @@ func main() {
 	// Запуск миграций через shared утилиту
 	if err := sharedMigrate.Run(db, sharedMigrate.Config{
 		Schema:         cfg.Database.Schema,
-		MigrationsPath: "file://cmd/server/migrations", // путь относительно запуска
+		MigrationsPath: "file://cmd/server/migrations",
 		Enabled:        cfg.MigrationEnabled,
 	}, log); err != nil {
 		log.Error("Ошибка применения миграций", "error", err)
@@ -69,20 +72,30 @@ func main() {
 	// Инициализация репозиториев
 	profileRepo := postgres.NewProfileRepository(db, cfg.Database.Schema, log)
 	statsRepo := postgres.NewStatsRepository(db, cfg.Database.Schema, log)
-	achievementRepo := postgres.NewAchievementRepository(db, cfg.Database.Schema, log)
+	achievementRepo := postgres.NewAchievementRepository(db, cfg.Database.Schema, log) // ← репозиторий
 	followRepo := postgres.NewFollowRepository(db, cfg.Database.Schema, log)
 
+	// Инициализация клиентов других сервисов
+	mediaClient := media.NewClient(cfg.MediaServiceURL, log)
+	eventClient := event.NewClient(cfg.EventServiceURL, cfg.GetRetryConfig(), log)
+
 	// Инициализация сервисов
-	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, log)
-	statsService := service.NewStatsService(statsRepo, log)
-	achievementService := service.NewAchievementService(achievementRepo, log)
+	achievementService := service.NewAchievementService(achievementRepo, statsRepo, log)
+	statsService := service.NewStatsService(statsRepo, achievementService, log)
+	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, log) // ← передаём achievementRepo
 	followService := service.NewFollowService(followRepo, profileRepo, log)
 
-	// Инициализация хендлеров
-	profileHandler := handlers.NewProfileHandler(profileService, log)
+	// Инициализация хендлеров с передачей клиентов
+	profileHandler := handlers.NewProfileHandler(profileService, mediaClient, eventClient, log)
 	statsHandler := handlers.NewStatsHandler(statsService, log)
 	achievementHandler := handlers.NewAchievementHandler(achievementService, log)
 	followHandler := handlers.NewFollowHandler(followService, log)
+
+	// Запуск RetryConsumer в фоне (если включено)
+	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
+		retryConsumer := retry.NewRetryConsumer(cfg.GetRetryConfig(), log)
+		go retryConsumer.Start(context.Background())
+	}
 
 	// Роутер
 	r := mux.NewRouter()
@@ -106,7 +119,7 @@ func main() {
 
 	protected.HandleFunc("/me", profileHandler.GetMyProfile).Methods("GET")
 	protected.HandleFunc("/me", profileHandler.UpdateProfile).Methods("PUT")
-	protected.HandleFunc("/me/avatar", profileHandler.UploadAvatar).Methods("POST")
+	protected.HandleFunc("/me/avatar", profileHandler.UploadAvatar).Methods("POST") // использует mediaClient
 	protected.HandleFunc("/{id}/follow", followHandler.Follow).Methods("POST")
 	protected.HandleFunc("/{id}/follow", followHandler.Unfollow).Methods("DELETE")
 	protected.HandleFunc("/{id}/followers", followHandler.GetFollowers).Methods("GET")

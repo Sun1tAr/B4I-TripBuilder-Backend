@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
-	"errors"
 )
 
 var ErrStatsNotFound = errors.New("stats not found")
@@ -22,14 +22,20 @@ type StatsResult struct {
 }
 
 type StatsService struct {
-	statsRepo repository.StatsRepository
-	log       *logger.Logger
+	statsRepo      repository.StatsRepository
+	achievementSvc *AchievementService // добавляем зависимость
+	log            *logger.Logger
 }
 
-func NewStatsService(statsRepo repository.StatsRepository, log *logger.Logger) *StatsService {
+func NewStatsService(
+	statsRepo repository.StatsRepository,
+	achievementSvc *AchievementService,
+	log *logger.Logger,
+) *StatsService {
 	return &StatsService{
-		statsRepo: statsRepo,
-		log:       log,
+		statsRepo:      statsRepo,
+		achievementSvc: achievementSvc,
+		log:            log,
 	}
 }
 
@@ -50,4 +56,16 @@ func (s *StatsService) GetUserStats(ctx context.Context, userID uuid.UUID) (*Sta
 		Followers:        stats.Followers,
 		Following:        stats.Following,
 	}, nil
+}
+
+// Пример метода, который будет вызываться при получении событий
+func (s *StatsService) IncrementRoutesCreated(ctx context.Context, userID uuid.UUID) error {
+	if err := s.statsRepo.IncrementRoutesCreated(ctx, userID); err != nil {
+		return err
+	}
+	// Проверяем достижения
+	if s.achievementSvc != nil {
+		_ = s.achievementSvc.CheckAndAward(ctx, userID, "routes_created", 0)
+	}
+	return nil
 }
