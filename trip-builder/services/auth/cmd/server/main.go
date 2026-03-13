@@ -20,6 +20,8 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
+	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
+
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -55,6 +57,16 @@ func main() {
 	}
 	log.Info("Подключение к БД установлено", "schema", cfg.Database.Schema)
 
+	// Запуск миграций через shared утилиту
+	if err := sharedMigrate.Run(db, sharedMigrate.Config{
+		Schema:         cfg.Database.Schema,
+		MigrationsPath: "file://cmd/server/migrations",
+		Enabled:        true, // всегда включено, но можно добавить в конфиг
+	}, log); err != nil {
+		log.Error("Ошибка применения миграций", "error", err)
+		os.Exit(1)
+	}
+
 	// Подключение к Redis
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
@@ -89,7 +101,7 @@ func main() {
 	// Инициализация сервиса
 	authService := service.NewAuthService(cfg, userRepo, tokenRepo, log)
 
-	// Инициализация воркера для очистки токенов (интервал из env)
+	// Инициализация воркера для очистки токенов
 	tokenCleaner := worker.NewTokenCleaner(tokenRepo, log, cfg.TokenCleanupInterval)
 	go tokenCleaner.Start(context.Background())
 
