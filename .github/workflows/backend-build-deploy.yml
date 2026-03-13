@@ -113,7 +113,7 @@ on:
 
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.26'
   REGISTRY: ghcr.io
   CONTOUR: ${{ inputs.contour }}
   DEPLOY_PATH: ${{ inputs.deploy_path }}
@@ -167,6 +167,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Tidy shared module
+        working-directory: ./trip-builder/shared
+        run: |
+          go mod tidy
 
       - name: Prepare ${{ matrix.service }} vendor
         working-directory: ./trip-builder/services/${{ matrix.service }}
