@@ -17,6 +17,7 @@ COPY vendor ./vendor
 
 # Copy source code
 COPY . .
+COPY cmd/server/migrations /app/cmd/server/migrations
 
 # Build the application using vendor
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/auth ./cmd/server
