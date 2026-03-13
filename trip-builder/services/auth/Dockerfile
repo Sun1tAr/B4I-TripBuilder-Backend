@@ -36,6 +36,7 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder --chown=appuser:appuser /app/bin/auth /app/auth
+COPY --from=builder --chown=appuser:appuser /app/cmd/server/migrations /app/cmd/server/migrations
 
 # Switch to non-root user
 USER appuser
