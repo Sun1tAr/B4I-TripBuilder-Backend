@@ -12,7 +12,6 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data_${CONTOUR:-local}:/var/lib/postgresql/data # fixme
       - ./services/auth/migrations/001_create_auth_tables.sql:/docker-entrypoint-initdb.d/001_create_auth_tables.sql
     networks:
       - trip-builder-network

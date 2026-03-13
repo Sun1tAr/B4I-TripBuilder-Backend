@@ -31,6 +31,10 @@ type Config struct {
 	KafkaHealthInterval  time.Duration `envconfig:"KAFKA_HEALTH_INTERVAL" default:"5m"`
 	KafkaDialTimeout     time.Duration `envconfig:"KAFKA_DIAL_TIMEOUT" default:"3s"`
 	RedisPingTimeout     time.Duration `envconfig:"REDIS_PING_TIMEOUT" default:"3s"`
+
+	// Настройки миграций
+	MigrationEnabled bool   `envconfig:"MIGRATION_ENABLED" default:"true"`
+	MigrationVersion uint   `envconfig:"MIGRATION_VERSION" default:"0"` // 0 = последняя
 }
 
 func (c *Config) GetLogLevel() slog.Level {
