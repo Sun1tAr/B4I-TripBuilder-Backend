@@ -17,6 +17,7 @@ COPY vendor ./vendor
 
 # Copy source code
 COPY . .
+COPY cmd/server/migrations /app/cmd/server/migrations
 
 # Build the application using vendor
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/user ./cmd/server
@@ -35,6 +36,7 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder --chown=appuser:appuser /app/bin/user /app/user
+COPY --from=builder --chown=appuser:appuser /app/cmd/server/migrations /app/cmd/server/migrations
 
 # Switch to non-root user
 USER appuser

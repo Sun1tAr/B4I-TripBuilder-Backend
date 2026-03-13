@@ -108,6 +108,9 @@ services:
       - "${USER_PORT:-8082}:8082"
     networks:
       - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   gateway:
