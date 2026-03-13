@@ -280,6 +280,17 @@ jobs:
               ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/$service/.env
           done
 
+      - name: Copy migration files to server
+        run: |
+          for service in $(echo '${{ inputs.services }}' | jq -r '.[]'); do
+            if [ -d "trip-builder/services/$service/migrations" ]; then
+              echo "Copying migrations for $service..."
+              ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services/$service/migrations"
+              scp -r trip-builder/services/$service/migrations/* \
+                ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/$service/migrations/
+            fi
+          done
+
         # Переменные композы
       - name: Create docker-compose .env file on server
         run: |
