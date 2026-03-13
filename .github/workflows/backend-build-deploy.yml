@@ -172,6 +172,7 @@ jobs:
         working-directory: ./trip-builder/services/${{ matrix.service }}
         run: |
           go mod download
+          go mod tidy
           go mod vendor
           go test ./... -v || true
 
