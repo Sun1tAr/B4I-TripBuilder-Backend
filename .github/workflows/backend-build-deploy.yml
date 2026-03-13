@@ -301,6 +301,10 @@ jobs:
           POSTGRES_DB=${{ inputs.postgres_database_name }}
           REDIS_PORT=${{ inputs.redis_port }}
           REDIS_CONTAINER_NAME=${{ inputs.redis_container_name }}
+          ZOOKEEPER_CONTAINER_NAME=${{  inputs.zookeeper_container_name  }}
+          ZOOKEEPER_PORT=${{  inputs.zookeeper_port  }}
+          KAFKA_CONTAINER_NAME=${{  inputs.kafka_container_name  }}
+          KAFKA_PORT=${{  inputs.kafka_port  }}
           EOF"
 
       - name: Deploy on server
