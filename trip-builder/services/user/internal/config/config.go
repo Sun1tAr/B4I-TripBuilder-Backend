@@ -13,10 +13,19 @@ import (
 
 type Config struct {
 	config.AppConfig
-	// Специфичные для user-service поля можно добавить позже
+	JWTSecret        string        `envconfig:"JWT_SECRET" required:"true"`
+	AvatarMaxSize    int64         `envconfig:"AVATAR_MAX_SIZE" default:"5242880"`
+	AllowedImageTypes []string     `envconfig:"ALLOWED_IMAGE_TYPES" default:"image/jpeg,image/png,image/gif"`
+	KafkaTopicUserCreated string   `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
+	KafkaTopicUserUpdated string   `envconfig:"KAFKA_TOPIC_USER_UPDATED" default:"user.updated"`
+	KafkaTopicUserDeleted string   `envconfig:"KAFKA_TOPIC_USER_DELETED" default:"user.deleted"`
+
+	// Настройки миграций
+	MigrationEnabled bool   `envconfig:"MIGRATION_ENABLED" default:"true"`
+	MigrationVersion uint   `envconfig:"MIGRATION_VERSION" default:"0"` // 0 = последняя
 }
 
-func (c *Config) LogLevel() slog.Level {
+func (c *Config) GetLogLevel() slog.Level {
 	switch strings.ToLower(c.AppConfig.LogLevel) {
 	case "trace":
 		return logger.LevelTrace
