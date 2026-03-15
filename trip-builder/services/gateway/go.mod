@@ -1,6 +1,6 @@
 module github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared v0.0.0-00010101000000-000000000000
