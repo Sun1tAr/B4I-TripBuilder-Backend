@@ -15,7 +15,7 @@ import (
 
 type Config struct {
 	config.AppConfig
-	JWTSecret        string        `envconfig:"JWT_SECRET" required:"true"`
+	// JWTSecret удалён - user service не нужен
 	AvatarMaxSize    int64         `envconfig:"AVATAR_MAX_SIZE" default:"5242880"`
 	AllowedImageTypes []string     `envconfig:"ALLOWED_IMAGE_TYPES" default:"image/jpeg,image/png,image/gif"`
 
@@ -49,6 +49,8 @@ func (c *Config) GetLogLevel() slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
+		slog.Error("Ошибка загрузки конфигурации", "error", "dont upload .env file log level")
+		os.Exit(1)
 		return slog.LevelInfo
 	}
 }

@@ -72,7 +72,7 @@ func main() {
 	// Инициализация репозиториев
 	profileRepo := postgres.NewProfileRepository(db, cfg.Database.Schema, log)
 	statsRepo := postgres.NewStatsRepository(db, cfg.Database.Schema, log)
-	achievementRepo := postgres.NewAchievementRepository(db, cfg.Database.Schema, log) // ← репозиторий
+	achievementRepo := postgres.NewAchievementRepository(db, cfg.Database.Schema, log)
 	followRepo := postgres.NewFollowRepository(db, cfg.Database.Schema, log)
 
 	// Инициализация клиентов других сервисов
@@ -82,7 +82,7 @@ func main() {
 	// Инициализация сервисов
 	achievementService := service.NewAchievementService(achievementRepo, statsRepo, log)
 	statsService := service.NewStatsService(statsRepo, achievementService, log)
-	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, log) // ← передаём achievementRepo
+	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, log)
 	followService := service.NewFollowService(followRepo, profileRepo, log)
 
 	// Инициализация хендлеров с передачей клиентов
@@ -106,24 +106,22 @@ func main() {
 
 	// API роутер с префиксом /api/v1/users
 	api := r.PathPrefix("/api/v1/users").Subrouter()
+	api.Use(middleware.Auth(log)) // <- УБРАН jwtSecret
 
-	// Публичные маршруты
+	// СНАЧАЛА специфичные маршруты (более конкретные)
+	api.HandleFunc("/me", profileHandler.GetMyProfile).Methods("GET")
+	api.HandleFunc("/me", profileHandler.UpdateProfile).Methods("PUT")
+	api.HandleFunc("/me/avatar", profileHandler.UploadAvatar).Methods("POST")
+	api.HandleFunc("/{id}/follow", followHandler.Follow).Methods("POST")
+	api.HandleFunc("/{id}/follow", followHandler.Unfollow).Methods("DELETE")
+	api.HandleFunc("/{id}/followers", followHandler.GetFollowers).Methods("GET")
+	api.HandleFunc("/{id}/following", followHandler.GetFollowing).Methods("GET")
+
+	// ПОТОМ общие маршруты (менее конкретные)
 	api.HandleFunc("/{id}", profileHandler.GetPublicProfile).Methods("GET")
 	api.HandleFunc("/{id}/stats", statsHandler.GetUserStats).Methods("GET")
 	api.HandleFunc("/{id}/achievements", achievementHandler.GetUserAchievements).Methods("GET")
 	api.HandleFunc("/{id}/events", profileHandler.GetUserEvents).Methods("GET")
-
-	// Защищённые маршруты
-	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.Auth(cfg.JWTSecret))
-
-	protected.HandleFunc("/me", profileHandler.GetMyProfile).Methods("GET")
-	protected.HandleFunc("/me", profileHandler.UpdateProfile).Methods("PUT")
-	protected.HandleFunc("/me/avatar", profileHandler.UploadAvatar).Methods("POST") // использует mediaClient
-	protected.HandleFunc("/{id}/follow", followHandler.Follow).Methods("POST")
-	protected.HandleFunc("/{id}/follow", followHandler.Unfollow).Methods("DELETE")
-	protected.HandleFunc("/{id}/followers", followHandler.GetFollowers).Methods("GET")
-	protected.HandleFunc("/{id}/following", followHandler.GetFollowing).Methods("GET")
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)

@@ -4,55 +4,49 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 )
 
-func Auth(jwtSecret string) func(http.Handler) http.Handler {
+func Auth(log *logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Добавляем request_id в лог
+			log = log.WithRequestID(r.Context())
+
+			log.Debug("AUTH MIDDLEWARE: started",
+				"path", r.URL.Path,
+				"method", r.Method,
+				"remote_addr", r.RemoteAddr,
+				"headers", r.Header,
+			)
+
+			// Проверяем заголовок X-User-ID от gateway
+			userID := r.Header.Get("X-User-ID")
+			log.Debug("AUTH MIDDLEWARE: X-User-ID header", "value", userID)
+
+			if userID == "" {
+				log.Warn("AUTH MIDDLEWARE: missing X-User-ID header")
+				writeError(w, http.StatusUnauthorized, "unauthorized", "missing user id")
+				return
+			}
+
+			// Проверяем Authorization header на всякий случай
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				writeError(w, http.StatusUnauthorized, "missing authorization header", "")
-				return
+			if authHeader != "" {
+				log.Debug("AUTH MIDDLEWARE: Authorization header present",
+					"length", len(authHeader),
+					"prefix", authHeader[:min(20, len(authHeader))],
+				)
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				writeError(w, http.StatusUnauthorized, "invalid authorization header format", "")
-				return
-			}
-
-			tokenString := parts[1]
-
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, jwt.ErrSignatureInvalid
-				}
-				return []byte(jwtSecret), nil
-			})
-
-			if err != nil || !token.Valid {
-				writeError(w, http.StatusUnauthorized, "invalid token", err.Error())
-				return
-			}
-
-			claims, ok := token.Claims.(jwt.MapClaims)
-			if !ok {
-				writeError(w, http.StatusUnauthorized, "invalid token claims", "")
-				return
-			}
-
-			userID, ok := claims["user_id"].(string)
-			if !ok {
-				writeError(w, http.StatusUnauthorized, "invalid token claims", "")
-				return
-			}
-
+			log.Debug("AUTH MIDDLEWARE: setting user_id in context", "user_id", userID)
 			ctx := context.WithValue(r.Context(), "user_id", userID)
+
 			next.ServeHTTP(w, r.WithContext(ctx))
+			log.Debug("AUTH MIDDLEWARE:", "Next type:", next)
+			log.Debug("AUTH MIDDLEWARE: finished")
 		})
 	}
 }
@@ -64,4 +58,11 @@ func writeError(w http.ResponseWriter, status int, err string, details string) {
 		Error:   err,
 		Details: details,
 	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

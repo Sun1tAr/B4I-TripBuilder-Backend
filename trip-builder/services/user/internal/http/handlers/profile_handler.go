@@ -79,31 +79,59 @@ func (h *ProfileHandler) GetPublicProfile(w http.ResponseWriter, r *http.Request
 
 // GetMyProfile получение своего профиля (с приватными полями)
 func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
+	// Добавляем request_id в лог хендлера
+	log := h.log.WithRequestID(r.Context())
+
+	log.Debug("PROFILE HANDLER: GetMyProfile started",
+		"path", r.URL.Path,
+		"method", r.Method,
+	)
+
 	userIDStr, ok := r.Context().Value("user_id").(string)
 	if !ok {
+		log.Error("PROFILE HANDLER: user_id not found in context")
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
 		return
 	}
 
+	log.Debug("PROFILE HANDLER: got user_id from context", "user_id", userIDStr)
+
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		h.writeError(w, http.StatusUnauthorized, "invalid user id in token", "")
+		log.Error("PROFILE HANDLER: invalid user id format",
+			"user_id", userIDStr,
+			"error", err,
+		)
+		h.writeError(w, http.StatusBadRequest, "invalid user id", err.Error())
 		return
 	}
+
+	log.Debug("PROFILE HANDLER: parsed user_id", "user_id", userID)
 
 	profile, err := h.profileService.GetFullProfile(r.Context(), userID)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrProfileNotFound):
+			log.Warn("PROFILE HANDLER: profile not found", "user_id", userID)
 			h.writeError(w, http.StatusNotFound, "profile not found", "")
 		default:
-			h.log.Error("Ошибка получения профиля", "error", err, "user_id", userID)
+			log.Error("PROFILE HANDLER: error getting profile",
+				"error", err,
+				"user_id", userID,
+			)
 			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 		}
 		return
 	}
 
+	log.Debug("PROFILE HANDLER: profile found",
+		"user_id", userID,
+		"first_name", profile.FirstName,
+		"last_name", profile.LastName,
+	)
+
 	h.writeJSON(w, http.StatusOK, dto.ProfileToResponse(profile))
+	log.Debug("PROFILE HANDLER: GetMyProfile finished")
 }
 
 // UpdateProfile обновление профиля

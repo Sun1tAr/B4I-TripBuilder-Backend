@@ -56,7 +56,7 @@ func main() {
 
 	// Защищённые маршруты
 	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.Auth(cfg.JWTSecret))
+	protected.Use(middleware.Auth(cfg.JWTSecret, log))
 
 	protected.HandleFunc("/auth/logout", handlers.Proxy(cfg, "auth")).Methods("POST")
 	protected.HandleFunc("/auth/me", handlers.Proxy(cfg, "auth")).Methods("GET")
