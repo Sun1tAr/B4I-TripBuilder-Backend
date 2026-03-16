@@ -10,7 +10,6 @@ on:
       SSH_USER:
         required: true
 
-
     inputs:
       contour:
         description: 'Environment contour (development/production)'
@@ -32,7 +31,6 @@ on:
         description: 'JSON array of service names'
         required: true
         type: string
-
 
       # Порты и имена контейнеров
       auth_port:
@@ -62,7 +60,6 @@ on:
         required: true
         type: string
 
-
       postgres_port:
         description: 'Postgres port'
         required: true
@@ -83,7 +80,6 @@ on:
         description: 'Postgres database name'
         required: true
         type: string
-
 
       redis_port:
         description: 'Redis port'
@@ -110,38 +106,11 @@ on:
         description: 'Kafka port'
         required: true
         type: string
-
-
-env:
-  GO_VERSION: '1.26'
-  REGISTRY: ghcr.io
-  CONTOUR: ${{ inputs.contour }}
-  DEPLOY_PATH: ${{ inputs.deploy_path }}
-  NGINX_APPS_AVAILABLE: ${{ inputs.nginx_conf_target }}
-  NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/$(basename ${{ inputs.nginx_conf_target }})
-
-  AUTH_PORT: ${{ inputs.auth_port }}
-  AUTH_CONTAINER_NAME: ${{ inputs.auth_container_name }}
-
-  USER_PORT: ${{ inputs.user_port }}
-  USER_CONTAINER_NAME: ${{ inputs.user_container_name }}
-
-  GATEWAY_PORT: ${{ inputs.gateway_port }}
-  GATEWAY_CONTAINER_NAME: ${{ inputs.gateway_container_name }}
-
-  POSTGRES_PORT: ${{ inputs.postgres_port }}
-  POSTGRES_CONTAINER_NAME: ${{ inputs.postgres_container_name }}
-  POSTGRES_USER: ${{ inputs.postgres_user }}
-  POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
-  POSTGRES_DB: ${{ inputs.postgres_database_name }}
-
-  REDIS_PORT: ${{ inputs.redis_port }}
-  REDIS_CONTAINER_NAME: ${{ inputs.redis_container_name }}
-
-  ZOOKEEPER_CONTAINER_NAME: ${{  inputs.zookeeper_container_name  }}
-  ZOOKEEPER_PORT: ${{  inputs.zookeeper_port  }}
-  KAFKA_CONTAINER_NAME: ${{  inputs.kafka_container_name  }}
-  KAFKA_PORT: ${{  inputs.kafka_port  }}
+      kafka_topics:
+        description: 'JSON array of Kafka topics to create'
+        required: false
+        type: string
+        default: '[]'
 
 jobs:
   test-and-build:
@@ -165,8 +134,21 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.23'
           cache: true
+
+      - name: Save workflow start time
+        run: |
+          # Сохраняем единое время для всего workflow
+          date -u +'%Y.%m.%d.%H.%M' > workflow-start-time.txt
+          echo "Workflow started at: $(cat workflow-start-time.txt)"
+
+      - name: Upload workflow start time
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-start-time
+          path: workflow-start-time.txt
+          retention-days: 1
 
       - name: Tidy shared module
         working-directory: ./trip-builder/shared
@@ -202,6 +184,18 @@ jobs:
         service: ${{ fromJson(inputs.services) }}
 
     steps:
+      - name: Download workflow start time
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-start-time
+
+      - name: Get workflow start time
+        id: workflow_start
+        run: |
+          WORKFLOW_START=$(cat workflow-start-time.txt)
+          echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
+          echo "Using workflow start time: $WORKFLOW_START"
+
       - name: Set lowercase variables
         id: string
         run: |
@@ -224,7 +218,7 @@ jobs:
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -235,7 +229,13 @@ jobs:
           file: ./trip-builder/services/${{ matrix.service }}/Dockerfile
           push: true
           tags: |
+            # Читаемый тег с единым временем workflow
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.$(echo ${{ github.sha }} | cut -c1-8)
+
+            # Тег с полным хешем коммита
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ github.sha }}
+
+            # Тег latest для контура
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -250,6 +250,17 @@ jobs:
       packages: read
 
     steps:
+      - name: Download workflow start time
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-start-time
+
+      - name: Get workflow start time
+        id: workflow_start
+        run: |
+          WORKFLOW_START=$(cat workflow-start-time.txt)
+          echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
+
       - name: Set lowercase variables
         id: string
         run: |
@@ -297,20 +308,24 @@ jobs:
             fi
           done
 
-        # Переменные композы
+      # Переменные композы с единым временем workflow
       - name: Create docker-compose .env file on server
         run: |
+          # Формируем читаемый тег с единым временем workflow и коротким SHA
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          HUMAN_TAG="${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.$SHORT_SHA"
+          
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           CONTOUR=${{ inputs.contour }}
           AUTH_PORT=${{ inputs.auth_port }}
           AUTH_CONTAINER_NAME=${{ inputs.auth_container_name }}
-          AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:${{ github.sha }}
+          AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:$HUMAN_TAG
           USER_PORT=${{ inputs.user_port }}
           USER_CONTAINER_NAME=${{ inputs.user_container_name }}
-          USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:${{ github.sha }}
+          USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:$HUMAN_TAG
           GATEWAY_PORT=${{ inputs.gateway_port }}
           GATEWAY_CONTAINER_NAME=${{ inputs.gateway_container_name }}
-          GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:${{ github.sha }}
+          GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:$HUMAN_TAG
           POSTGRES_PORT=${{ inputs.postgres_port }}
           POSTGRES_CONTAINER_NAME=${{ inputs.postgres_container_name }}
           POSTGRES_USER=${{ inputs.postgres_user }}
@@ -318,10 +333,10 @@ jobs:
           POSTGRES_DB=${{ inputs.postgres_database_name }}
           REDIS_PORT=${{ inputs.redis_port }}
           REDIS_CONTAINER_NAME=${{ inputs.redis_container_name }}
-          ZOOKEEPER_CONTAINER_NAME=${{  inputs.zookeeper_container_name  }}
-          ZOOKEEPER_PORT=${{  inputs.zookeeper_port  }}
-          KAFKA_CONTAINER_NAME=${{  inputs.kafka_container_name  }}
-          KAFKA_PORT=${{  inputs.kafka_port  }}
+          ZOOKEEPER_CONTAINER_NAME=${{ inputs.zookeeper_container_name }}
+          ZOOKEEPER_PORT=${{ inputs.zookeeper_port }}
+          KAFKA_CONTAINER_NAME=${{ inputs.kafka_container_name }}
+          KAFKA_PORT=${{ inputs.kafka_port }}
           EOF"
 
       - name: Login to GHCR on server
@@ -343,7 +358,34 @@ jobs:
       - name: Clean up old images
         run: |
           ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker image prune -f"
-        
+
+      - name: Create Kafka topics
+        if: inputs.kafka_topics != '[]'
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+          
+            echo "Waiting for Kafka to be ready..."
+            sleep 30
+          
+            # Проходим по всем топикам из JSON
+            for topic in $(echo '${{ inputs.kafka_topics }}' | jq -r '.[]'); do
+              echo "Creating topic: $topic"
+              docker exec ${KAFKA_CONTAINER_NAME} kafka-topics \
+                --bootstrap-server localhost:9092 \
+                --create \
+                --if-not-exists \
+                --topic "$topic" \
+                --partitions 1 \
+                --replication-factor 1
+            done
+          
+            echo "=== Available topics ==="
+            docker exec ${KAFKA_CONTAINER_NAME} kafka-topics --bootstrap-server localhost:9092 --list
+          EOF
+
+
 
   configure-nginx:
     name: Configure Nginx
