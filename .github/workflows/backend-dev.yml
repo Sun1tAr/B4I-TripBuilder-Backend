@@ -44,6 +44,7 @@ jobs:
       zookeeper_port: 2171
       kafka_container_name: kafka-dev
       kafka_port: 9082
+      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", "event.completed", "media.uploaded"]'
 
 
     secrets:
