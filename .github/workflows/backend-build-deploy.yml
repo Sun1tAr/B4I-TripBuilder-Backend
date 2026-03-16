@@ -31,6 +31,10 @@ on:
         description: 'JSON array of service names'
         required: true
         type: string
+      workflow_start:
+        description: 'Workflow start time (YYYY.MM.DD.HH.MM)'
+        required: true
+        type: string
 
       # Порты и имена контейнеров
       auth_port:
@@ -141,19 +145,6 @@ jobs:
           go-version: '1.23'
           cache: true
 
-      - name: Save workflow start time for ${{ matrix.service }}
-        run: |
-          # Сохраняем единое время для всего workflow
-          date -u +'%Y.%m.%d.%H.%M' > workflow-start-time-${{ matrix.service }}.txt
-          echo "Workflow started at: $(cat workflow-start-time-${{ matrix.service }}.txt) for ${{ matrix.service }}"
-
-      - name: Upload workflow start time for ${{ matrix.service }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: workflow-start-time-${{ matrix.service }}
-          path: workflow-start-time-${{ matrix.service }}.txt
-          retention-days: 1
-
       - name: Tidy shared module
         working-directory: ./trip-builder/shared
         run: |
@@ -188,18 +179,6 @@ jobs:
         service: ${{ fromJson(inputs.services) }}
 
     steps:
-      - name: Download workflow start time for ${{ matrix.service }}
-        uses: actions/download-artifact@v4
-        with:
-          name: workflow-start-time-${{ matrix.service }}
-
-      - name: Get workflow start time for ${{ matrix.service }}
-        id: workflow_start
-        run: |
-          WORKFLOW_START=$(cat workflow-start-time-${{ matrix.service }}.txt)
-          echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
-          echo "Using workflow start time: $WORKFLOW_START for ${{ matrix.service }}"
-
       - name: Get short SHA
         id: sha
         run: |
@@ -239,7 +218,7 @@ jobs:
           file: ./trip-builder/services/${{ matrix.service }}/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ inputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}-latest
           cache-from: type=gha
@@ -255,26 +234,6 @@ jobs:
       packages: read
 
     steps:
-      - name: Get first service from list
-        id: first_service
-        run: |
-          FIRST_SERVICE=$(echo '${{ inputs.services }}' | jq -r '.[0]')
-          echo "first_service=$FIRST_SERVICE" >> $GITHUB_OUTPUT
-          echo "Using first service: $FIRST_SERVICE for workflow time"
-
-      - name: Download workflow start time
-        uses: actions/download-artifact@v4
-        with:
-          name: workflow-start-time-${{ steps.first_service.outputs.first_service }}
-
-      - name: Get workflow start time
-        id: workflow_start
-        run: |
-          FIRST_SERVICE="${{ steps.first_service.outputs.first_service }}"
-          WORKFLOW_START=$(cat workflow-start-time-$FIRST_SERVICE.txt)
-          echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
-          echo "Using workflow start time: $WORKFLOW_START"
-
       - name: Get short SHA
         id: sha
         run: |
@@ -332,7 +291,7 @@ jobs:
       - name: Create docker-compose .env file on server
         run: |
           # Формируем читаемый тег с единым временем workflow и коротким SHA
-          HUMAN_TAG="${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}"
+          HUMAN_TAG="${{ inputs.contour }}.${{ inputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}"
 
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           CONTOUR=${{ inputs.contour }}

@@ -12,6 +12,20 @@ permissions:
 
 
 jobs:
+  # Сначала вычисляем время
+  prepare:
+    name: Prepare workflow data
+    runs-on: ubuntu-latest
+    outputs:
+      workflow_start: ${{ steps.time.outputs.workflow_start }}
+    steps:
+      - name: Get workflow start time
+        id: time
+        run: |
+          WORKFLOW_START=$(date -u +'%Y.%m.%d.%H.%M')
+          echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
+          echo "Workflow started at: $WORKFLOW_START"
+
   call-build-deploy:
     uses: ./.github/workflows/backend-build-deploy.yml
     with:
@@ -19,6 +33,9 @@ jobs:
       deploy_path: /opt/trip-builder/dev
       nginx_conf_source: .docker/nginx-backend-dev.conf
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-dev.conf
+
+      # Передаём вычисленное время
+      workflow_start: ${{ needs.prepare.outputs.workflow_start }}
 
       services: '["auth", "user", "gateway"]'
 
