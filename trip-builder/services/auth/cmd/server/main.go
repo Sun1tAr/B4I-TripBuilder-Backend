@@ -93,7 +93,7 @@ func main() {
 	// Инициализация Kafka продюсера
 	kafkaProducer := kafka.NewProducer(
 		cfg.Kafka.Brokers,
-		"user-events",
+		cfg.UserCreatedTopic, // <- берём из конфига
 		log,
 	)
 	defer kafkaProducer.Close()
