@@ -200,6 +200,12 @@ jobs:
           echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
           echo "Using workflow start time: $WORKFLOW_START for ${{ matrix.service }}"
 
+      - name: Get short SHA
+        id: sha
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
       - name: Set lowercase variables
         id: string
         run: |
@@ -233,7 +239,7 @@ jobs:
           file: ./trip-builder/services/${{ matrix.service }}/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.$(echo ${{ github.sha }} | cut -c1-8)
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}-latest
           cache-from: type=gha
@@ -268,6 +274,12 @@ jobs:
           WORKFLOW_START=$(cat workflow-start-time-$FIRST_SERVICE.txt)
           echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
           echo "Using workflow start time: $WORKFLOW_START"
+
+      - name: Get short SHA
+        id: sha
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
 
       - name: Set lowercase variables
         id: string
@@ -320,8 +332,7 @@ jobs:
       - name: Create docker-compose .env file on server
         run: |
           # Формируем читаемый тег с единым временем workflow и коротким SHA
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
-          HUMAN_TAG="${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.$SHORT_SHA"
+          HUMAN_TAG="${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}"
 
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           CONTOUR=${{ inputs.contour }}
