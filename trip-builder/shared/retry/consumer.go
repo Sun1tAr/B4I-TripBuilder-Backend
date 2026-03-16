@@ -21,6 +21,14 @@ type RetryConsumer struct {
 }
 
 func NewRetryConsumer(cfg RetryConfig, log *logger.Logger) *RetryConsumer {
+	// Добавляем лог прямо здесь
+	log.Info("NewRetryConsumer: создание с конфигом",
+		"brokers", cfg.Brokers,
+		"retry_topic", cfg.RetryTopic,
+		"dlq_topic", cfg.DLQTopic,
+		"max_retries", cfg.MaxRetries,
+	)
+
 	return &RetryConsumer{
 		reader: kafka.NewReader(kafka.ReaderConfig{
 			Brokers:  cfg.Brokers,

@@ -16,16 +16,16 @@ var (
 )
 
 type ProfileService struct {
-	profileRepo      repository.ProfileRepository
-	statsRepo        repository.StatsRepository
-	achievementRepo  repository.AchievementRepository // ← это репозиторий, а не сервис
-	log              *logger.Logger
+	profileRepo     repository.ProfileRepository
+	statsRepo       repository.StatsRepository
+	achievementRepo repository.AchievementRepository
+	log             *logger.Logger
 }
 
 func NewProfileService(
 	profileRepo repository.ProfileRepository,
 	statsRepo repository.StatsRepository,
-	achievementRepo repository.AchievementRepository, // ← репозиторий
+	achievementRepo repository.AchievementRepository,
 	log *logger.Logger,
 ) *ProfileService {
 	return &ProfileService{
@@ -36,12 +36,24 @@ func NewProfileService(
 	}
 }
 
-// CreateProfile создаёт профиль и статистику для нового пользователя
+// CreateProfile создаёт профиль и статистику для нового пользователя (идемпотентно)
 func (s *ProfileService) CreateProfile(ctx context.Context, userID uuid.UUID) error {
+	// Проверяем, существует ли уже профиль
+	exists, err := s.profileRepo.Exists(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if exists {
+		s.log.Debug("Профиль уже существует, пропускаем создание", "user_id", userID)
+		return nil
+	}
+
 	if err := s.profileRepo.Create(ctx, userID); err != nil {
+		s.log.Error("Ошибка создания профиля", "error", err, "user_id", userID)
 		return err
 	}
 	if err := s.statsRepo.Create(ctx, userID); err != nil {
+		s.log.Error("Ошибка создания статистики", "error", err, "user_id", userID)
 		return err
 	}
 	s.log.Info("Профиль создан", "user_id", userID)
@@ -82,7 +94,6 @@ func (s *ProfileService) UpdateProfile(ctx context.Context, userID uuid.UUID, up
 		return ErrProfileNotFound
 	}
 
-	// Маппинг DTO в модель репозитория
 	modelUpdates := &models.UpdateProfileRequest{
 		FirstName:           updates.FirstName,
 		LastName:            updates.LastName,

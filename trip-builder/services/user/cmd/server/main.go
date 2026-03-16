@@ -13,9 +13,11 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/media"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/config"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/consumer"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/middleware"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
@@ -79,8 +81,12 @@ func main() {
 	mediaClient := media.NewClient(cfg.MediaServiceURL, log)
 	eventClient := event.NewClient(cfg.EventServiceURL, cfg.GetRetryConfig(), log)
 
+	// Инициализация Kafka продюсера для достижений (если ещё не создан)
+	achievementProducer := kafka.NewAchievementProducer(cfg.KafkaBrokers, log)
+	defer achievementProducer.Close()
+
 	// Инициализация сервисов
-	achievementService := service.NewAchievementService(achievementRepo, statsRepo, log)
+	achievementService := service.NewAchievementService(achievementRepo, statsRepo, achievementProducer, log)
 	statsService := service.NewStatsService(statsRepo, achievementService, log)
 	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, log)
 	followService := service.NewFollowService(followRepo, profileRepo, log)
@@ -93,8 +99,63 @@ func main() {
 
 	// Запуск RetryConsumer в фоне (если включено)
 	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
+		log.Info("Создание RetryConsumer",
+			"brokers", cfg.KafkaBrokers,
+			"retry_topic", cfg.RetryTopic,
+			"dlq_topic", cfg.DLQTopic,
+		)
 		retryConsumer := retry.NewRetryConsumer(cfg.GetRetryConfig(), log)
 		go retryConsumer.Start(context.Background())
+	}
+
+	// Запуск Kafka consumer'ов для событий
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if len(cfg.KafkaBrokers) > 0 {
+		groupID := "user-service"
+
+		// user.created
+		userCreatedConsumer := consumer.NewUserCreatedConsumer(
+			cfg.KafkaBrokers,
+			"user.created",
+			groupID,
+			profileService,
+			log,
+		)
+		go userCreatedConsumer.Start(ctx)
+
+		// route.created
+		routeCreatedConsumer := consumer.NewRouteCreatedConsumer(
+			cfg.KafkaBrokers,
+			"route.created",
+			groupID,
+			statsService,
+			log,
+		)
+		go routeCreatedConsumer.Start(ctx)
+
+		// event.completed
+		eventCompletedConsumer := consumer.NewEventCompletedConsumer(
+			cfg.KafkaBrokers,
+			"event.completed",
+			groupID,
+			statsService,
+			log,
+		)
+		go eventCompletedConsumer.Start(ctx)
+
+		// media.uploaded
+		mediaUploadedConsumer := consumer.NewMediaUploadedConsumer(
+			cfg.KafkaBrokers,
+			"media.uploaded",
+			groupID,
+			statsService,
+			log,
+		)
+		go mediaUploadedConsumer.Start(ctx)
+
+		log.Info("Все Kafka consumers запущены")
 	}
 
 	// Роутер
@@ -106,7 +167,7 @@ func main() {
 
 	// API роутер с префиксом /api/v1/users
 	api := r.PathPrefix("/api/v1/users").Subrouter()
-	api.Use(middleware.Auth(log)) // <- УБРАН jwtSecret
+	api.Use(middleware.Auth(log))
 
 	// СНАЧАЛА специфичные маршруты (более конкретные)
 	api.HandleFunc("/me", profileHandler.GetMyProfile).Methods("GET")
@@ -151,10 +212,12 @@ func main() {
 	<-done
 	log.Info("Получен сигнал завершения, останавливаемся")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	cancel() // останавливаем consumer'ов
 
-	if err := srv.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("Ошибка при graceful shutdown", "error", err)
 	}
 

@@ -62,7 +62,7 @@ jobs:
       zookeeper_port: 2181
       kafka_container_name: kafka-test
       kafka_port: 9092
-      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", "event.completed", "media.uploaded"]'
+      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"]'
 
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
