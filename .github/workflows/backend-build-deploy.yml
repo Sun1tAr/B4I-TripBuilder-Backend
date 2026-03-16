@@ -350,8 +350,29 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
 
             echo "Waiting for Kafka to be ready..."
-            sleep 30
+            MAX_RETRIES=60  # 60 попыток * 10 секунд = 10 минут максимум
+            RETRY_COUNT=0
+          
+            # Проверяем готовность Kafka
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if docker exec ${{ inputs.kafka_container_name }} kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+                echo "✅ Kafka is ready after $(($RETRY_COUNT * 10)) seconds!"
+                break
+              fi
+          
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "⏳ Waiting for Kafka... attempt $RETRY_COUNT/$MAX_RETRIES (elapsed: $(($RETRY_COUNT * 10))s)"
+              sleep 10
+            done
 
+            # Если Kafka не готова после всех попыток - падаем
+            if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+              echo "❌ Kafka failed to start within 10 minutes!"
+              docker logs ${{ inputs.kafka_container_name }} --tail 50
+              exit 1
+            fi
+
+            # Создаём топики
             for topic in $(echo '${{ inputs.kafka_topics }}' | jq -r '.[]'); do
               echo "Creating topic: $topic"
               docker exec ${{ inputs.kafka_container_name }} kafka-topics \
