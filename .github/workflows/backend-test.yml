@@ -36,7 +36,7 @@ jobs:
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-test.conf
 
       # Передаём вычисленное время
-      workflow_start: ${{ needs.prepare.outputs.workflow_start }}
+      workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       services: '["auth", "user", "gateway"]'
 
