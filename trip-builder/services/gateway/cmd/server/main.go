@@ -53,6 +53,8 @@ func main() {
 	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
+	public.HandleFunc("/auth/reset-password", handlers.Proxy(cfg, "auth")).Methods("POST")
+	public.HandleFunc("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth")).Methods("POST")
 
 	// Защищённые маршруты
 	protected := api.PathPrefix("").Subrouter()
