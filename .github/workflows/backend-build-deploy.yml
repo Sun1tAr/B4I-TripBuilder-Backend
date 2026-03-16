@@ -354,7 +354,7 @@ jobs:
 
             for topic in $(echo '${{ inputs.kafka_topics }}' | jq -r '.[]'); do
               echo "Creating topic: $topic"
-              docker exec ${KAFKA_CONTAINER_NAME} kafka-topics \
+              docker exec ${{ inputs.kafka_container_name }} kafka-topics \
                 --bootstrap-server localhost:9092 \
                 --create \
                 --if-not-exists \
@@ -364,7 +364,7 @@ jobs:
             done
 
             echo "=== Available topics ==="
-            docker exec ${KAFKA_CONTAINER_NAME} kafka-topics --bootstrap-server localhost:9092 --list
+            docker exec ${{ inputs.kafka_container_name }} kafka-topics --bootstrap-server localhost:9092 --list
           EOF
 
   configure-nginx:
