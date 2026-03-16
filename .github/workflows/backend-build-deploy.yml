@@ -137,17 +137,17 @@ jobs:
           go-version: '1.23'
           cache: true
 
-      - name: Save workflow start time
+      - name: Save workflow start time for ${{ matrix.service }}
         run: |
           # Сохраняем единое время для всего workflow
-          date -u +'%Y.%m.%d.%H.%M' > workflow-start-time.txt
-          echo "Workflow started at: $(cat workflow-start-time.txt)"
+          date -u +'%Y.%m.%d.%H.%M' > workflow-start-time-${{ matrix.service }}.txt
+          echo "Workflow started at: $(cat workflow-start-time-${{ matrix.service }}.txt) for ${{ matrix.service }}"
 
-      - name: Upload workflow start time
+      - name: Upload workflow start time for ${{ matrix.service }}
         uses: actions/upload-artifact@v4
         with:
-          name: workflow-start-time
-          path: workflow-start-time.txt
+          name: workflow-start-time-${{ matrix.service }}
+          path: workflow-start-time-${{ matrix.service }}.txt
           retention-days: 1
 
       - name: Tidy shared module
@@ -184,17 +184,17 @@ jobs:
         service: ${{ fromJson(inputs.services) }}
 
     steps:
-      - name: Download workflow start time
+      - name: Download workflow start time for ${{ matrix.service }}
         uses: actions/download-artifact@v4
         with:
-          name: workflow-start-time
+          name: workflow-start-time-${{ matrix.service }}
 
-      - name: Get workflow start time
+      - name: Get workflow start time for ${{ matrix.service }}
         id: workflow_start
         run: |
-          WORKFLOW_START=$(cat workflow-start-time.txt)
+          WORKFLOW_START=$(cat workflow-start-time-${{ matrix.service }}.txt)
           echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
-          echo "Using workflow start time: $WORKFLOW_START"
+          echo "Using workflow start time: $WORKFLOW_START for ${{ matrix.service }}"
 
       - name: Set lowercase variables
         id: string
@@ -250,16 +250,17 @@ jobs:
       packages: read
 
     steps:
-      - name: Download workflow start time
+      - name: Download workflow start time for ${{ matrix.service }}
         uses: actions/download-artifact@v4
         with:
-          name: workflow-start-time
+          name: workflow-start-time-${{ matrix.service }}
 
-      - name: Get workflow start time
+      - name: Get workflow start time for ${{ matrix.service }}
         id: workflow_start
         run: |
-          WORKFLOW_START=$(cat workflow-start-time.txt)
+          WORKFLOW_START=$(cat workflow-start-time-${{ matrix.service }}.txt)
           echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
+          echo "Using workflow start time: $WORKFLOW_START for ${{ matrix.service }}"
 
       - name: Set lowercase variables
         id: string
@@ -314,7 +315,7 @@ jobs:
           # Формируем читаемый тег с единым временем workflow и коротким SHA
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
           HUMAN_TAG="${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.$SHORT_SHA"
-          
+
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           CONTOUR=${{ inputs.contour }}
           AUTH_PORT=${{ inputs.auth_port }}
@@ -365,11 +366,10 @@ jobs:
           ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
             cd ${{ env.DEPLOY_PATH }}
-          
+
             echo "Waiting for Kafka to be ready..."
             sleep 30
-          
-            # Проходим по всем топикам из JSON
+
             for topic in $(echo '${{ inputs.kafka_topics }}' | jq -r '.[]'); do
               echo "Creating topic: $topic"
               docker exec ${KAFKA_CONTAINER_NAME} kafka-topics \
@@ -380,10 +380,12 @@ jobs:
                 --partitions 1 \
                 --replication-factor 1
             done
-          
+
             echo "=== Available topics ==="
             docker exec ${KAFKA_CONTAINER_NAME} kafka-topics --bootstrap-server localhost:9092 --list
           EOF
+
+
 
 
 
