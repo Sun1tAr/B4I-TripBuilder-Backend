@@ -27,6 +27,7 @@ jobs:
           echo "Workflow started at: $WORKFLOW_START"
 
   call-build-deploy:
+    needs: prepare
     uses: ./.github/workflows/backend-build-deploy.yml
     with:
       contour: development
@@ -35,7 +36,7 @@ jobs:
       nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-dev.conf
 
       # Передаём вычисленное время
-      workflow_start: ${{ needs.prepare.outputs.workflow_start }}
+      workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       services: '["auth", "user", "gateway"]'
 
