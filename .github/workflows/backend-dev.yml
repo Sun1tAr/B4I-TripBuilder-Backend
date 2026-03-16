@@ -22,7 +22,7 @@ jobs:
       - name: Get workflow start time
         id: time
         run: |
-          WORKFLOW_START=$(date -u +'%Y%m%d%H%M')
+          WORKFLOW_START=$(date -u +'%Y.%m.%d.%H.%M')
           echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
           echo "Workflow started at: $WORKFLOW_START"
 
