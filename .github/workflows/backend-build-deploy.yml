@@ -119,6 +119,11 @@ on:
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
+  CONTOUR: ${{ inputs.contour }}
+  DEPLOY_PATH: ${{ inputs.deploy_path }}
+  NGINX_APPS_AVAILABLE: ${{ inputs.nginx_conf_target }}
+  NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/$(basename ${{ inputs.nginx_conf_target }})
+
 
 jobs:
   test-and-build:
