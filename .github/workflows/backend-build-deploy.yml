@@ -194,7 +194,12 @@ jobs:
         run: |
           WORKFLOW_START=$(cat workflow-start-time-${{ matrix.service }}.txt)
           echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
-          echo "Using workflow start time: $WORKFLOW_START for ${{ matrix.service }}"
+
+      - name: Get short SHA
+        id: sha
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
 
       - name: Set lowercase variables
         id: string
@@ -229,7 +234,7 @@ jobs:
           file: ./trip-builder/services/${{ matrix.service }}/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.$(echo ${{ github.sha }} | cut -c1-8)
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ steps.workflow_start.outputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}-latest
           cache-from: type=gha
