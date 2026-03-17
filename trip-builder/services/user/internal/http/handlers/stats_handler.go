@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -18,15 +20,15 @@ type StatsHandler struct {
 }
 
 // statsToResponse преобразует результат сервиса в DTO ответа
-func statsToResponse(s *service.StatsResult) *dto.StatsResponse {
-	return &dto.StatsResponse{
+func statsToResponse(s *service.StatsResult) *userdto.StatsResponse {
+	return &userdto.StatsResponse{
 		UserID:          s.UserID,
 		RoutesCreated:   s.RoutesCreated,
 		EventsDone:      s.EventsDone,
 		CountriesVisited: s.CountriesVisited,
-		PhotosUploaded:  s.PhotosUploaded,
-		Followers:       s.Followers,
-		Following:       s.Following,
+		PhotosUploaded:   s.PhotosUploaded,
+		Followers:        s.Followers,
+		Following:        s.Following,
 	}
 }
 
@@ -40,7 +42,7 @@ func NewStatsHandler(statsService *service.StatsService, log *logger.Logger) *St
 func (h *StatsHandler) writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})

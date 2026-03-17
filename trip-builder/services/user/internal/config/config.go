@@ -56,6 +56,7 @@ func (c *Config) GetLogLevel() slog.Level {
 }
 
 func (c *Config) GetRetryConfig() retry.RetryConfig {
+	slog.Info("Создание конфига Retry: ", "KafkaBrokers", c.KafkaBrokers)
 	return retry.RetryConfig{
 		Brokers:        c.KafkaBrokers,
 		RetryTopic:     c.RetryTopic,

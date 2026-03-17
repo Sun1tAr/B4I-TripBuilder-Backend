@@ -8,9 +8,12 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/media"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/models"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -39,7 +42,7 @@ func NewProfileHandler(
 func (h *ProfileHandler) writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})
@@ -49,6 +52,34 @@ func (h *ProfileHandler) writeJSON(w http.ResponseWriter, status int, data inter
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+// profileToResponse преобразует модель профиля в DTO ответа
+func profileToResponse(p *models.Profile) *userdto.ProfileResponse {
+	resp := &userdto.ProfileResponse{
+		UserID:    p.UserID,
+		FirstName: p.FirstName,
+		LastName:  p.LastName,
+		AvatarURL: p.AvatarURL,
+		Bio:       p.Bio,
+		Language:  p.Language,
+		Timezone:  p.Timezone,
+		NotificationsEnabled: p.NotificationsEnabled,
+		CreatedAt: p.CreatedAt,
+		UpdatedAt: p.UpdatedAt,
+	}
+	return resp
+}
+
+// profileToPublicResponse преобразует модель профиля в публичное DTO
+func profileToPublicResponse(p *models.Profile) *userdto.PublicProfileResponse {
+	return &userdto.PublicProfileResponse{
+		UserID:    p.UserID,
+		FirstName: p.FirstName,
+		LastName:  p.LastName,
+		AvatarURL: p.AvatarURL,
+		Bio:       p.Bio,
+	}
 }
 
 // GetPublicProfile получение публичного профиля
@@ -74,12 +105,11 @@ func (h *ProfileHandler) GetPublicProfile(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.ProfileToPublicResponse(profile))
+	h.writeJSON(w, http.StatusOK, profileToPublicResponse(profile))
 }
 
 // GetMyProfile получение своего профиля (с приватными полями)
 func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
-	// Добавляем request_id в лог хендлера
 	log := h.log.WithRequestID(r.Context())
 
 	log.Debug("PROFILE HANDLER: GetMyProfile started",
@@ -130,7 +160,7 @@ func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 		"last_name", profile.LastName,
 	)
 
-	h.writeJSON(w, http.StatusOK, dto.ProfileToResponse(profile))
+	h.writeJSON(w, http.StatusOK, profileToResponse(profile))
 	log.Debug("PROFILE HANDLER: GetMyProfile finished")
 }
 
@@ -148,7 +178,7 @@ func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req dto.UpdateProfileRequest
+	var req userdto.UpdateProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
@@ -165,7 +195,7 @@ func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "profile updated successfully"})
+	h.writeJSON(w, http.StatusOK, userdto.MessageResponse{Message: "profile updated successfully"})
 }
 
 // UploadAvatar загрузка аватара

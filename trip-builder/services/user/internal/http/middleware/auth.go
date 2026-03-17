@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 )
 
@@ -45,7 +45,6 @@ func Auth(log *logger.Logger) func(http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), "user_id", userID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
-			log.Debug("AUTH MIDDLEWARE:", "Next type:", next)
 			log.Debug("AUTH MIDDLEWARE: finished")
 		})
 	}
@@ -54,7 +53,7 @@ func Auth(log *logger.Logger) func(http.Handler) http.Handler {
 func writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})

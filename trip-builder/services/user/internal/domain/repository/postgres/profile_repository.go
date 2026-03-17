@@ -29,19 +29,19 @@ func (r *ProfileRepository) table() string {
 	return fmt.Sprintf("%s.profiles", r.schema)
 }
 
-func (r *ProfileRepository) Create(ctx context.Context, userID uuid.UUID) error {
+func (r *ProfileRepository) Create(ctx context.Context, userID uuid.UUID, firstName, lastName string) error {
 	query := fmt.Sprintf(`
-		INSERT INTO %s (user_id, language, timezone, notifications_enabled, created_at)
-		VALUES ($1, 'ru', 'UTC', true, NOW())
-	`, r.table())
+        INSERT INTO %s (user_id, first_name, last_name, language, timezone, notifications_enabled, created_at)
+        VALUES ($1, $2, $3, 'ru', 'UTC', true, NOW())
+    `, r.table())
 
-	_, err := r.db.ExecContext(ctx, query, userID)
+	_, err := r.db.ExecContext(ctx, query, userID, firstName, lastName)
 	if err != nil {
 		r.log.Error("ProfileRepository.Create: ошибка создания профиля", "error", err, "user_id", userID)
 		return err
 	}
 
-	r.log.Debug("ProfileRepository.Create: профиль создан", "user_id", userID)
+	r.log.Debug("ProfileRepository.Create: профиль создан", "user_id", userID, "first_name", firstName, "last_name", lastName)
 	return nil
 }
 

@@ -23,6 +23,9 @@ type Config struct {
 	VerificationURL  string        `envconfig:"VERIFICATION_URL" required:"true"`
 	ResetPasswordURL string        `envconfig:"RESET_PASSWORD_URL" required:"true"`
 
+	// Kafka топики
+	UserCreatedTopic string        `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
+
 	// Cron интервалы
 	TokenCleanupInterval time.Duration `envconfig:"TOKEN_CLEANUP_INTERVAL" default:"1h"`
 

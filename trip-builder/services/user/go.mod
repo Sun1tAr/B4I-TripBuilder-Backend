@@ -9,6 +9,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/segmentio/kafka-go v0.4.47
 )
 
 require (
@@ -19,7 +20,6 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/pierrec/lz4/v4 v4.1.16 // indirect
-	github.com/segmentio/kafka-go v0.4.47 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 )
 

@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -26,7 +29,7 @@ func NewAchievementHandler(achievementService *service.AchievementService, log *
 func (h *AchievementHandler) writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})
@@ -36,6 +39,17 @@ func (h *AchievementHandler) writeJSON(w http.ResponseWriter, status int, data i
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+// achievementToResponse преобразует модель достижения в DTO ответа
+func achievementToResponse(a *models.Achievement) *userdto.AchievementResponse {
+	return &userdto.AchievementResponse{
+		ID:          a.ID,
+		Type:        a.Type,
+		Title:       a.Title,
+		Description: a.Description,
+		EarnedAt:    a.EarnedAt,
+	}
 }
 
 func (h *AchievementHandler) GetUserAchievements(w http.ResponseWriter, r *http.Request) {
@@ -55,9 +69,9 @@ func (h *AchievementHandler) GetUserAchievements(w http.ResponseWriter, r *http.
 		return
 	}
 
-	var resp []*dto.AchievementResponse
+	var resp []*userdto.AchievementResponse
 	for _, a := range achievements {
-		resp = append(resp, dto.AchievementToResponse(a))
+		resp = append(resp, achievementToResponse(a))
 	}
 	h.writeJSON(w, http.StatusOK, resp)
 }

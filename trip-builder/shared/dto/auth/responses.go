@@ -1,4 +1,4 @@
-package dto
+package auth
 
 import (
 	"time"
@@ -14,10 +14,12 @@ type TokenResponse struct {
 }
 
 type UserResponse struct {
-	ID         uuid.UUID `json:"id"`
-	Email      string    `json:"email"`
-	IsVerified bool      `json:"is_verified"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         uuid.UUID  `json:"id"`
+	Email      string     `json:"email"`
+	FirstName  string     `json:"first_name,omitempty"`
+	LastName   string     `json:"last_name,omitempty"`
+	IsVerified bool       `json:"is_verified"`
+	CreatedAt  time.Time  `json:"created_at"`
 	LastLogin  *time.Time `json:"last_login,omitempty"`
 }
 

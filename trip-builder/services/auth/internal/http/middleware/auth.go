@@ -2,13 +2,12 @@ package middleware
 
 import (
 	"context"
-	"encoding/json" // <- БЫЛО ПРОПУЩЕНО
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	// Правильный полный путь до dto
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers/dto"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
 )
 
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
@@ -61,7 +60,7 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 func writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})

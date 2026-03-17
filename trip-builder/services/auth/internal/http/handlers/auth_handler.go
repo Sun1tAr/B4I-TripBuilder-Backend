@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers/dto"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/utils"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	authdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/auth"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -38,7 +40,7 @@ func NewAuthHandler(authService *service.AuthService, rateLimiter *ratelimit.Rat
 func (h *AuthHandler) writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})
@@ -59,14 +61,14 @@ func min(a, b int) int {
 
 // Register регистрация нового пользователя
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req dto.RegisterRequest
+	var req authdto.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
 
-	if req.Email == "" || req.Password == "" {
-		h.writeError(w, http.StatusBadRequest, "email and password are required", "")
+	if req.Email == "" || req.Password == "" || req.FirstName == "" || req.LastName == "" {
+		h.writeError(w, http.StatusBadRequest, "email, password, firstName and lastName are required", "")
 		return
 	}
 	if len(req.Password) < 6 {
@@ -88,24 +90,39 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Отправляем событие в Kafka асинхронно
 	go func() {
+		eventData := authdto.UserCreatedData{
+			UserID:    user.ID,
+			Email:     user.Email,
+			FirstName: req.FirstName,
+			LastName:  req.LastName,
+		}
+
 		event := kafka.Event{
 			EventID:   uuid.New().String(),
 			EventType: "user.created",
 			Timestamp: time.Now(),
-			Data: map[string]interface{}{
-				"user_id": user.ID,
-				"email":   user.Email,
-			},
+			Data:      eventData,
 		}
+
 		if err := h.kafkaProducer.Publish(context.Background(), event); err != nil {
 			h.log.Error("Ошибка отправки user.created", "error", err, "user_id", user.ID)
+		} else {
+			h.log.Debug("Событие user.created отправлено", "user_id", user.ID, "email", user.Email)
 		}
 	}()
 
-	h.log.Info("Пользователь зарегистрирован", "user_id", user.ID)
-	h.writeJSON(w, http.StatusCreated, dto.UserResponse{
+	h.log.Info("Пользователь зарегистрирован",
+		"user_id", user.ID,
+		"email", user.Email,
+		"first_name", req.FirstName,
+		"last_name", req.LastName,
+	)
+
+	h.writeJSON(w, http.StatusCreated, authdto.UserResponse{
 		ID:         user.ID,
 		Email:      user.Email,
+		FirstName:  req.FirstName,
+		LastName:   req.LastName,
 		IsVerified: user.IsVerified,
 		CreatedAt:  user.CreatedAt,
 		LastLogin:  user.LastLogin,
@@ -123,7 +140,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("Ошибка rate limiter", "error", err)
 		// Пропускаем запрос при ошибке Redis, но логируем
 	} else if !allowed {
-		// Единственное место с детальным логированием
 		h.log.Debug("Rate limit exceeded for IP",
 			"ip", ip,
 			"limit", h.rateLimiter.GetLimit(),
@@ -133,7 +149,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req dto.LoginRequest
+	var req authdto.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
@@ -143,7 +159,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrUserNotFound), errors.Is(err, service.ErrInvalidPassword):
-			// Неудачная попытка — счётчик уже увеличен, не сбрасываем
 			h.writeError(w, http.StatusUnauthorized, "invalid credentials", "")
 		case errors.Is(err, service.ErrUserNotVerified):
 			h.writeError(w, http.StatusForbidden, "email not verified", "")
@@ -160,7 +175,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.log.Info("Успешный вход", "email", req.Email, "ip", ip)
-	h.writeJSON(w, http.StatusOK, dto.TokenResponse{
+	h.writeJSON(w, http.StatusOK, authdto.TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
@@ -174,7 +189,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	r.Body = io.NopCloser(bytes.NewBuffer(body))
 
-	var req dto.RefreshRequest
+	var req authdto.RefreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.log.Error("Ошибка декодирования запроса", "error", err, "body", string(body))
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
@@ -198,7 +213,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.log.Info("Токены успешно обновлены")
-	h.writeJSON(w, http.StatusOK, dto.TokenResponse{
+	h.writeJSON(w, http.StatusOK, authdto.TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
@@ -208,7 +223,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 // Logout выход пользователя
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	var req dto.LogoutRequest
+	var req authdto.LogoutRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
@@ -220,7 +235,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "successfully logged out"})
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "successfully logged out"})
 }
 
 // VerifyEmail подтверждение email
@@ -244,12 +259,12 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "email successfully verified"})
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "email successfully verified"})
 }
 
 // RequestPasswordReset запрос сброса пароля
 func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
-	var req dto.ResetPasswordRequest
+	var req authdto.ResetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
@@ -264,7 +279,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 		h.log.Debug("Сгенерирован токен сброса пароля", "email", req.Email)
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "if email exists, reset link will be sent"})
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "if email exists, reset link will be sent"})
 }
 
 // ResetPassword сброс пароля
@@ -272,7 +287,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	token := vars["token"]
 
-	var req dto.ResetPasswordConfirmRequest
+	var req authdto.ResetPasswordConfirmRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
@@ -301,7 +316,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "password successfully reset"})
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "password successfully reset"})
 }
 
 // GetMe получение информации о текущем пользователе
@@ -312,6 +327,8 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Можно получить полную информацию о пользователе из БД
+	// Но пока возвращаем только ID
 	h.writeJSON(w, http.StatusOK, map[string]string{"user_id": userID})
 }
 
