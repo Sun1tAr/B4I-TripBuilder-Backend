@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -28,7 +30,7 @@ func NewFollowHandler(followService *service.FollowService, log *logger.Logger) 
 func (h *FollowHandler) writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(dto.ErrorResponse{
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{
 		Error:   err,
 		Details: details,
 	})
@@ -82,7 +84,7 @@ func (h *FollowHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "followed successfully"})
+	h.writeJSON(w, http.StatusOK, userdto.MessageResponse{Message: "followed successfully"})
 }
 
 // Unfollow отписаться от пользователя
@@ -120,7 +122,7 @@ func (h *FollowHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, dto.MessageResponse{Message: "unfollowed successfully"})
+	h.writeJSON(w, http.StatusOK, userdto.MessageResponse{Message: "unfollowed successfully"})
 }
 
 // GetFollowers получить список подписчиков

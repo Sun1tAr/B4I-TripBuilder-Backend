@@ -1,9 +1,8 @@
-package dto
+package user
 
 import (
 	"time"
 
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/models"
 	"github.com/google/uuid"
 )
 
@@ -59,41 +58,4 @@ type ErrorResponse struct {
 
 type MessageResponse struct {
 	Message string `json:"message"`
-}
-
-func ProfileToResponse(p *models.Profile) *ProfileResponse {
-	return &ProfileResponse{
-		UserID:    p.UserID,
-		FirstName: p.FirstName,
-		LastName:  p.LastName,
-		AvatarURL: p.AvatarURL,
-		Bio:       p.Bio,
-		Language:  p.Language,
-		Timezone:  p.Timezone,
-		NotificationsEnabled: p.NotificationsEnabled,
-		CreatedAt: p.CreatedAt,
-		UpdatedAt: p.UpdatedAt,
-	}
-}
-
-func ProfileToPublicResponse(p *models.Profile) *PublicProfileResponse {
-	return &PublicProfileResponse{
-		UserID:    p.UserID,
-		FirstName: p.FirstName,
-		LastName:  p.LastName,
-		AvatarURL: p.AvatarURL,
-		Bio:       p.Bio,
-	}
-}
-
-
-
-func AchievementToResponse(a *models.Achievement) *AchievementResponse {
-	return &AchievementResponse{
-		ID:          a.ID,
-		Type:        a.Type,
-		Title:       a.Title,
-		Description: a.Description,
-		EarnedAt:    a.EarnedAt,
-	}
 }

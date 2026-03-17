@@ -1,4 +1,4 @@
-package dto
+package user
 
 import (
 	"github.com/google/uuid"
@@ -12,10 +12,6 @@ type UpdateProfileRequest struct {
 	Language  *string `json:"language,omitempty"`
 	Timezone  *string `json:"timezone,omitempty"`
 	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
-}
-
-type UploadAvatarRequest struct {
-	// multipart form
 }
 
 type FollowRequest struct {

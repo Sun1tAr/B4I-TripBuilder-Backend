@@ -7,6 +7,8 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	authdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/auth"
+
 	"github.com/segmentio/kafka-go"
 )
 
@@ -65,21 +67,36 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 		"offset", msg.Offset,
 	)
 
-	var base BaseEvent
-	if err := json.Unmarshal(msg.Value, &base); err != nil {
+	log.Info("Получено сообщение", "value_preview", string(msg.Value[:min(100, len(msg.Value))]))
+
+	// Парсим событие
+	var event struct {
+		EventID   string          `json:"event_id"`
+		EventType string          `json:"event_type"`
+		Timestamp time.Time       `json:"timestamp"`
+		Data      json.RawMessage `json:"data"`
+	}
+
+	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		log.Error("Ошибка парсинга базового события", "error", err)
 		return
 	}
 
-	var data UserCreatedData
-	if err := json.Unmarshal(base.Data, &data); err != nil {
+	// Парсим данные
+	var data authdto.UserCreatedData
+	if err := json.Unmarshal(event.Data, &data); err != nil {
 		log.Error("Ошибка парсинга данных user.created", "error", err)
 		return
 	}
 
-	log.Debug("Обработка user.created", "user_id", data.UserID)
+	log.Debug("Обработка user.created",
+		"user_id", data.UserID,
+		"email", data.Email,
+		"first_name", data.FirstName,
+		"last_name", data.LastName,
+	)
 
-	if err := c.profileService.CreateProfile(ctx, data.UserID); err != nil {
+	if err := c.profileService.CreateProfile(ctx, data.UserID, data.FirstName, data.LastName); err != nil {
 		log.Error("Ошибка создания профиля", "error", err, "user_id", data.UserID)
 		return
 	}
@@ -89,4 +106,11 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 
 func (c *UserCreatedConsumer) Close() error {
 	return c.reader.Close()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

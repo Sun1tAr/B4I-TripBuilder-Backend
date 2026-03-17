@@ -6,7 +6,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/repository"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/http/handlers/dto"
+	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
 )
@@ -37,7 +37,7 @@ func NewProfileService(
 }
 
 // CreateProfile создаёт профиль и статистику для нового пользователя (идемпотентно)
-func (s *ProfileService) CreateProfile(ctx context.Context, userID uuid.UUID) error {
+func (s *ProfileService) CreateProfile(ctx context.Context, userID uuid.UUID, firstName, lastName string) error {
 	// Проверяем, существует ли уже профиль
 	exists, err := s.profileRepo.Exists(ctx, userID)
 	if err != nil {
@@ -48,7 +48,7 @@ func (s *ProfileService) CreateProfile(ctx context.Context, userID uuid.UUID) er
 		return nil
 	}
 
-	if err := s.profileRepo.Create(ctx, userID); err != nil {
+	if err := s.profileRepo.Create(ctx, userID, firstName, lastName); err != nil {
 		s.log.Error("Ошибка создания профиля", "error", err, "user_id", userID)
 		return err
 	}
@@ -56,7 +56,7 @@ func (s *ProfileService) CreateProfile(ctx context.Context, userID uuid.UUID) er
 		s.log.Error("Ошибка создания статистики", "error", err, "user_id", userID)
 		return err
 	}
-	s.log.Info("Профиль создан", "user_id", userID)
+	s.log.Info("Профиль создан", "user_id", userID, "first_name", firstName, "last_name", lastName)
 	return nil
 }
 
@@ -85,7 +85,7 @@ func (s *ProfileService) GetPublicProfile(ctx context.Context, userID uuid.UUID)
 }
 
 // UpdateProfile обновление профиля
-func (s *ProfileService) UpdateProfile(ctx context.Context, userID uuid.UUID, updates *dto.UpdateProfileRequest) error {
+func (s *ProfileService) UpdateProfile(ctx context.Context, userID uuid.UUID, updates *userdto.UpdateProfileRequest) error {
 	exists, err := s.profileRepo.Exists(ctx, userID)
 	if err != nil {
 		return err

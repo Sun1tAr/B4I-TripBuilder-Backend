@@ -8,7 +8,7 @@ import (
 )
 
 type ProfileRepository interface {
-	Create(ctx context.Context, userID uuid.UUID) error
+	Create(ctx context.Context, userID uuid.UUID, firstName, lastName string) error
 	GetByID(ctx context.Context, userID uuid.UUID) (*models.Profile, error)
 	Update(ctx context.Context, userID uuid.UUID, updates *models.UpdateProfileRequest) error
 	UpdateAvatar(ctx context.Context, userID uuid.UUID, avatarURL string) error
