@@ -23,7 +23,7 @@ func Auth(log *logger.Logger) func(http.Handler) http.Handler {
 			userID := r.Header.Get("X-User-ID")
 			if userID == "" {
 				log.Warn("AUTH MIDDLEWARE: missing X-User-ID header")
-				writeError(w, http.StatusUnauthorized, "unauthorized", "missing user id")
+				writeError(w, http.StatusUnauthorized, "missing authorization header", "")
 				return
 			}
 

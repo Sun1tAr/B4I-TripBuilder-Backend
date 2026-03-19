@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/service"
@@ -126,23 +127,36 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// Фильтры
 	filters := make(map[string]interface{})
+
 	if country := r.URL.Query().Get("country"); country != "" {
 		filters["country"] = country
 	}
+
 	if durationFrom := r.URL.Query().Get("duration_from"); durationFrom != "" {
-		if val, err := strconv.Atoi(durationFrom); err == nil {
+		if val, err := strconv.Atoi(durationFrom); err == nil && val > 0 {
 			filters["duration_from"] = val
 		}
 	}
+
 	if durationTo := r.URL.Query().Get("duration_to"); durationTo != "" {
-		if val, err := strconv.Atoi(durationTo); err == nil {
+		if val, err := strconv.Atoi(durationTo); err == nil && val > 0 {
 			filters["duration_to"] = val
 		}
 	}
 
-	// TODO: фильтр по тегам (требует JOIN в запросе)
+	// Фильтр по тегам
+	if tags := r.URL.Query().Get("tags"); tags != "" {
+		tagList := strings.Split(tags, ",")
+		// Очищаем от пробелов
+		for i, tag := range tagList {
+			tagList[i] = strings.TrimSpace(tag)
+		}
+		filters["tags"] = tagList
+	}
 
-	routes, total, err := h.routeService.ListPublicRoutes(r.Context(), page, size, sort, filters)
+	userID := h.getUserIDFromContext(r) // может быть nil для анонимов
+
+	routes, total, err := h.routeService.ListPublicRoutes(r.Context(), page, size, sort, filters, userID)
 	if err != nil {
 		log.Error("Ошибка получения публичных маршрутов", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
@@ -163,6 +177,7 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 			TotalHours:  route.TotalHours,
 			LikesCount:  route.LikesCount,
 			EventsCount: route.EventsCount,
+			IsLiked:     route.IsLiked,
 			CreatedAt:   route.CreatedAt,
 			UpdatedAt:   route.UpdatedAt,
 		}

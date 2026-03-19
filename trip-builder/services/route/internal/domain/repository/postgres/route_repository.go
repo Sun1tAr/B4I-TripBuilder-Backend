@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
@@ -161,44 +162,85 @@ func (r *RouteRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) 
 	return route, waypoints, nil
 }
 
+// ListPublic возвращает публичные маршруты с фильтрацией и пагинацией
 func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sort string, filters map[string]interface{}) ([]models.Route, int64, error) {
+	r.log.Debug("RouteRepository.ListPublic",
+		"limit", limit,
+		"offset", offset,
+		"sort", sort,
+		"filters", filters,
+	)
+
 	// Базовый запрос
-	baseQuery := fmt.Sprintf("FROM %s WHERE is_public = true", r.table())
+	fromClause := fmt.Sprintf("FROM %s r", r.table())
+	whereClause := "WHERE r.is_public = true"
 	args := []interface{}{}
 	argPos := 1
 
-	// Применяем фильтры
+	// Обработка фильтра по тегам (требует JOIN)
+	if tags, ok := filters["tags"]; ok {
+		tagList, ok := tags.([]string)
+		if ok && len(tagList) > 0 {
+			// Добавляем JOIN с таблицами тегов
+			routeTagsTable := fmt.Sprintf("%s.route_tags", r.schema)
+			tagsTable := fmt.Sprintf("%s.tags", r.schema)
+
+			fromClause = fmt.Sprintf(`
+				FROM %s r
+				JOIN %s rt ON r.id = rt.route_id
+				JOIN %s t ON rt.tag_id = t.id
+			`, r.table(), routeTagsTable, tagsTable)
+
+			// Добавляем условие по тегам
+			placeholders := make([]string, len(tagList))
+			for i, tag := range tagList {
+				placeholders[i] = fmt.Sprintf("$%d", argPos)
+				args = append(args, tag)
+				argPos++
+			}
+			whereClause = fmt.Sprintf("WHERE r.is_public = true AND t.name IN (%s)",
+				strings.Join(placeholders, ","))
+		}
+	}
+
+	// Применяем остальные фильтры
 	if country, ok := filters["country"]; ok && country != "" {
-		baseQuery += fmt.Sprintf(" AND country = $%d", argPos)
+		whereClause += fmt.Sprintf(" AND r.country = $%d", argPos)
 		args = append(args, country)
 		argPos++
 	}
 
 	if durationFrom, ok := filters["duration_from"]; ok {
-		totalDays := durationFrom.(int)
-		baseQuery += fmt.Sprintf(" AND (total_days * 24 + total_hours) >= $%d", argPos)
-		args = append(args, totalDays*24)
+		totalMinutes := durationFrom.(int) * 24 * 60
+		whereClause += fmt.Sprintf(" AND (r.total_days * 24 * 60 + r.total_hours * 60) >= $%d", argPos)
+		args = append(args, totalMinutes)
 		argPos++
 	}
 
 	if durationTo, ok := filters["duration_to"]; ok {
-		totalDays := durationTo.(int)
-		baseQuery += fmt.Sprintf(" AND (total_days * 24 + total_hours) <= $%d", argPos)
-		args = append(args, totalDays*24)
+		totalMinutes := durationTo.(int) * 24 * 60
+		whereClause += fmt.Sprintf(" AND (r.total_days * 24 * 60 + r.total_hours * 60) <= $%d", argPos)
+		args = append(args, totalMinutes)
 		argPos++
 	}
 
 	// Сортировка
-	orderBy := " ORDER BY created_at DESC"
+	orderBy := " ORDER BY r.created_at DESC"
 	switch sort {
 	case "likes":
-		orderBy = " ORDER BY likes_count DESC, created_at DESC"
+		orderBy = " ORDER BY r.likes_count DESC, r.created_at DESC"
 	case "popular":
-		orderBy = " ORDER BY (likes_count + events_count) DESC, created_at DESC"
+		orderBy = " ORDER BY (r.likes_count + r.events_count) DESC, r.created_at DESC"
 	}
 
-	// Получаем общее количество
-	countQuery := "SELECT COUNT(*) " + baseQuery
+	// Если использовали JOIN, нужно добавить GROUP BY для избежания дубликатов
+	groupBy := ""
+	if _, ok := filters["tags"]; ok {
+		groupBy = " GROUP BY r.id"
+	}
+
+	// Получаем общее количество (с учётом фильтров)
+	countQuery := "SELECT COUNT(DISTINCT r.id) " + fromClause + " " + whereClause
 	var total int64
 	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
@@ -207,9 +249,10 @@ func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sor
 	}
 
 	// Получаем данные
-	query := "SELECT id, title, description, country, image_url, user_id, is_public, " +
-		"total_days, total_hours, likes_count, events_count, created_at, updated_at " +
-		baseQuery + orderBy + fmt.Sprintf(" LIMIT $%d OFFSET $%d", argPos, argPos+1)
+	query := "SELECT r.id, r.title, r.description, r.country, r.image_url, r.user_id, r.is_public, " +
+		"r.total_days, r.total_hours, r.likes_count, r.events_count, r.created_at, r.updated_at " +
+		fromClause + " " + whereClause + groupBy + orderBy +
+		fmt.Sprintf(" LIMIT $%d OFFSET $%d", argPos, argPos+1)
 
 	args = append(args, limit, offset)
 
@@ -241,6 +284,7 @@ func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sor
 		routes = append(routes, route)
 	}
 
+	r.log.Debug("RouteRepository.ListPublic: получено маршрутов", "count", len(routes), "total", total)
 	return routes, total, nil
 }
 

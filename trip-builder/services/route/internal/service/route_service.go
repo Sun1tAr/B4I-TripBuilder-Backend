@@ -437,8 +437,14 @@ func (s *RouteService) ToggleLike(ctx context.Context, routeID, userID uuid.UUID
 }
 
 // ListPublicRoutes возвращает список публичных маршрутов с фильтрацией
-func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sort string, filters map[string]interface{}) ([]models.Route, int64, error) {
-	s.log.Debug("ListPublicRoutes", "page", page, "size", size, "sort", sort)
+func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sort string, filters map[string]interface{}, currentUserID *uuid.UUID) ([]models.RouteWithLike, int64, error) {
+	s.log.Debug("ListPublicRoutes",
+		"page", page,
+		"size", size,
+		"sort", sort,
+		"filters", filters,
+		"user_id", currentUserID,
+	)
 
 	offset := (page - 1) * size
 	routes, total, err := s.routeRepo.ListPublic(ctx, size, offset, sort, filters)
@@ -447,7 +453,25 @@ func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sor
 		return nil, 0, err
 	}
 
-	return routes, total, nil
+	// Обогащаем информацией о лайках для текущего пользователя
+	result := make([]models.RouteWithLike, len(routes))
+	for i, route := range routes {
+		isLiked := false
+		if currentUserID != nil {
+			isLiked, err = s.likeRepo.IsLiked(ctx, *currentUserID, route.ID)
+			if err != nil {
+				s.log.Error("Ошибка проверки лайка", "error", err, "route_id", route.ID)
+				isLiked = false // не фатально
+			}
+		}
+
+		result[i] = models.RouteWithLike{
+			Route:   route,
+			IsLiked: isLiked,
+		}
+	}
+
+	return result, total, nil
 }
 
 // ListUserRoutes возвращает маршруты пользователя
