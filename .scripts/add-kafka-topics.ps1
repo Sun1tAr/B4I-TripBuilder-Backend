@@ -9,6 +9,9 @@ docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost
 docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic user.events.dlq --partitions 1 --replication-factor 1
 docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic user.achievement_earned --partitions 1 --replication-factor 1
 
+docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic route.updated --partitions 1 --replication-factor 1
+docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic route.deleted --partitions 1 --replication-factor 1
+
 echo "=== Available topics ==="
 
 docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --list

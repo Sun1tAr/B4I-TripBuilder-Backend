@@ -17,5 +17,10 @@ cd ..\gateway
 go mod tidy
 go mod vendor
 
+Write-Host "Update Route" -ForegroundColor Green
+cd ..\route
+go mod tidy
+go mod vendor
+
 Write-Host "Back road" -ForegroundColor Green
 cd ..\..\..\.scripts

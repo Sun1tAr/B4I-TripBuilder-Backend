@@ -129,6 +129,23 @@ services:
       - auth
       - user
 
+  route:
+    build:
+      context: services/route/
+      dockerfile: Dockerfile
+    image: ${ROUTE_IMAGE:-trip-builder-route:local} # fixme
+    container_name: ${ROUTE_CONTAINER_NAME:-trip-builder-backend-route} # fixme
+    env_file:
+      - services/route/.env
+    ports:
+      - "${ROUTE_PORT:-8083}:8083" # fixme
+    networks:
+      - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge
