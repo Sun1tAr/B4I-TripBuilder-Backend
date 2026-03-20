@@ -38,7 +38,7 @@ jobs:
       # Передаём вычисленное время
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
-      services: '["auth", "user", "gateway"]'
+      services: '["auth", "user", "gateway", "route"]'
 
       auth_port: 9101
       auth_container_name: trip-builder-backend-auth-dev
@@ -62,7 +62,12 @@ jobs:
       zookeeper_port: 2171
       kafka_container_name: kafka-dev
       kafka_port: 9082
-      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"]'
+      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
+        "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
+        , "route.updated", "route.deleted"]'
+
+      route_port: 9103
+      route_container_name: trip-builder-backend-route-dev
 
 
     secrets:

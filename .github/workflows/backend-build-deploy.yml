@@ -116,6 +116,15 @@ on:
         type: string
         default: '[]'
 
+      route_port:
+        description: 'Route service port'
+        required: true
+        type: string
+      route_container_name:
+        description: 'Route container name'
+        required: true
+        type: string
+
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
@@ -320,6 +329,9 @@ jobs:
           ZOOKEEPER_PORT=${{ inputs.zookeeper_port }}
           KAFKA_CONTAINER_NAME=${{ inputs.kafka_container_name }}
           KAFKA_PORT=${{ inputs.kafka_port }}
+          ROUTE_PORT=${{ inputs.route_port }}
+          ROUTE_CONTAINER_NAME=${{ inputs.route_container_name }}
+          ROUTE_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/route:$HUMAN_TAG
           EOF"
 
       - name: Login to GHCR on server

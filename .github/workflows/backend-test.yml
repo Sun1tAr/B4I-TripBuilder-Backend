@@ -38,7 +38,7 @@ jobs:
       # Передаём вычисленное время
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
-      services: '["auth", "user", "gateway"]'
+      services: '["auth", "user", "gateway", "route"]'
 
       auth_port: 9001
       auth_container_name: trip-builder-backend-auth-test
@@ -62,7 +62,13 @@ jobs:
       zookeeper_port: 2181
       kafka_container_name: kafka-test
       kafka_port: 9092
-      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"]'
+      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
+        "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
+        , "route.updated", "route.deleted"]'
+
+      route_port: 9003
+      route_container_name: trip-builder-backend-route-test
+
 
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
