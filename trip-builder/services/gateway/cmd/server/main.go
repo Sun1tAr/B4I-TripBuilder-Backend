@@ -45,9 +45,9 @@ func main() {
 	// API роутер с префиксом /api/v1
 	api := r.PathPrefix("/api/v1").Subrouter()
 
-	// ========== ЗАЩИЩЁННЫЕ МАРШРУТЫ (БОЛЕЕ КОНКРЕТНЫЕ) ==========
+	// ========== ЗАКРЫТЫЕ МАРШРУТЫ (требуют авторизацию) ==========
 	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.Auth(cfg.JWTSecret, log))
+	protected.Use(middleware.AuthRequired(cfg.JWTSecret, log))
 
 	// Auth
 	protected.HandleFunc("/auth/logout", handlers.Proxy(cfg, "auth")).Methods("POST")
@@ -62,10 +62,10 @@ func main() {
 	protected.HandleFunc("/users/{id}/events", handlers.Proxy(cfg, "user")).Methods("GET")
 	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("POST")
 	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("DELETE")
-	protected.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET") // общий - ПОСЛЕ конкретных
+	protected.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
 
 	// Routes - конкретные маршруты ДО общих
-	protected.HandleFunc("/routes/my", handlers.Proxy(cfg, "route")).Methods("GET") // <-- теперь ПЕРВЫМ
+	protected.HandleFunc("/routes/my", handlers.Proxy(cfg, "route")).Methods("GET")
 	protected.HandleFunc("/routes/{id}/like", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/{id}/likes", handlers.Proxy(cfg, "route")).Methods("GET")
 	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
@@ -126,7 +126,14 @@ func main() {
 	protected.HandleFunc("/notifications/device", handlers.Proxy(cfg, "notification")).Methods("POST")
 	protected.HandleFunc("/notifications/device/{token}", handlers.Proxy(cfg, "notification")).Methods("DELETE")
 
-	// ========== ПУБЛИЧНЫЕ МАРШРУТЫ ==========
+	// ========== УСЛОВНО-ЗАКРЫТЫЕ МАРШРУТЫ (опциональная авторизация) ==========
+	conditional := api.PathPrefix("").Subrouter()
+	conditional.Use(middleware.AuthOptional(cfg.JWTSecret, log))
+
+	// Routes - условно-закрытые (передаём user_id если есть)
+	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
+
+	// ========== ОТКРЫТЫЕ МАРШРУТЫ (без авторизации) ==========
 	public := api.PathPrefix("").Subrouter()
 
 	// Auth
@@ -136,14 +143,13 @@ func main() {
 	public.HandleFunc("/auth/reset-password", handlers.Proxy(cfg, "auth")).Methods("POST")
 	public.HandleFunc("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth")).Methods("POST")
 
-	// Routes - публичные (ТОЛЬКО GET)
+	// Routes - открытые
 	public.HandleFunc("/routes/popular", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes/tags", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET") // этот остаётся публичным
 
-	// Events - публичные
+	// Events - открытые
 	public.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
 
 	// Middleware
