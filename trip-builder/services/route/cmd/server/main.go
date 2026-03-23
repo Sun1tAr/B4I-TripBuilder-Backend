@@ -99,6 +99,7 @@ func main() {
 	protected.HandleFunc("", routeHandler.CreateRoute).Methods("POST")
 	protected.HandleFunc("/{id}/like", routeHandler.ToggleLike).Methods("POST")
 	protected.HandleFunc("/{id}/likes", routeHandler.GetRouteLikes).Methods("GET")
+	protected.HandleFunc("/{id}", routeHandler.GetRouteByID).Methods("GET")
 	protected.HandleFunc("/{id}", routeHandler.UpdateRoute).Methods("PUT")
 	protected.HandleFunc("/{id}", routeHandler.DeleteRoute).Methods("DELETE")
 
@@ -108,7 +109,6 @@ func main() {
 	public.HandleFunc("/tags", routeHandler.GetAllTags).Methods("GET")
 	public.HandleFunc("/tag/{tag}", routeHandler.GetRoutesByTag).Methods("GET")
 	public.HandleFunc("", routeHandler.GetPublicRoutes).Methods("GET")
-	public.HandleFunc("/{id}", routeHandler.GetRouteByID).Methods("GET")
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)
