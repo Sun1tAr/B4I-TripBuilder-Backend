@@ -12,6 +12,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/route"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/consumer"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/http/handlers"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/http/middleware"
@@ -95,6 +96,19 @@ func main() {
 
 	// Запуск фонового воркера для обновления статусов поездок
 	go eventService.StartStatusUpdater(context.Background(), cfg.StatusUpdateInterval)
+
+	// Запуск Kafka consumer для user.created
+	if len(cfg.Kafka.Brokers) > 0 {
+		userCreatedConsumer := consumer.NewUserCreatedConsumer(
+			cfg.Kafka.Brokers,
+			"user.created",
+			"event-service",
+			participantRepo,
+			log,
+		)
+		go userCreatedConsumer.Start(context.Background())
+		log.Info("Запущен consumer для топика user.created")
+	}
 
 	// Инициализация хендлеров
 	eventHandler := handlers.NewEventHandler(eventService, log)

@@ -873,6 +873,7 @@ func (s *EventService) StartStatusUpdater(ctx context.Context, interval time.Dur
 	}
 }
 
+// completeEvent завершает поездку
 func (s *EventService) completeEvent(ctx context.Context, eventID uuid.UUID) error {
 	s.log.Trace("completeEvent: начало", "event_id", eventID)
 
@@ -909,15 +910,28 @@ func (s *EventService) completeEvent(ctx context.Context, eventID uuid.UUID) err
 	}
 	s.log.Trace("completeEvent: участники для уведомления", "event_id", eventID, "count", len(participantIDs))
 
-	// TODO: определить посещённые страны (пока пустой список)
-	countries := []string{}
+	// MVP0: получаем страну из маршрута
+	// Для MVP1: собирать уникальные страны из посещённых точек
+	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, event.RouteID.String())
+	if err != nil {
+		s.log.Error("completeEvent: ошибка получения маршрута для определения страны", "error", err, "route_id", event.RouteID)
+	}
+
+	var countries []string
+	if routeData != nil && routeData.Country != "" {
+		countries = []string{routeData.Country}
+		s.log.Trace("completeEvent: страна определена из маршрута", "event_id", eventID, "country", routeData.Country)
+	} else {
+		s.log.Warn("completeEvent: не удалось определить страну маршрута", "event_id", eventID, "route_id", event.RouteID)
+		countries = []string{}
+	}
 
 	// Публикуем событие
 	s.log.Trace("completeEvent: публикация события в Kafka", "event_id", eventID)
 	if err := s.producer.PublishEventCompleted(ctx, eventID, event.RouteID, event.OwnerID, participantIDs, countries); err != nil {
 		s.log.Error("completeEvent: ошибка публикации события", "error", err, "event_id", eventID)
 	} else {
-		s.log.Trace("completeEvent: событие опубликовано", "event_id", eventID)
+		s.log.Trace("completeEvent: событие опубликовано", "event_id", eventID, "countries", countries)
 	}
 
 	s.log.Info("completeEvent: поездка завершена", "event_id", eventID)

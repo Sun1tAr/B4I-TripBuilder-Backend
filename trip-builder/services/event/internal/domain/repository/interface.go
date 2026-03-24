@@ -61,6 +61,9 @@ type ParticipantRepository interface {
 	// Для приглашений
 	FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error)
 	LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error
+
+	// LinkAllInvitationsByEmail связывает все приглашения с указанным email с пользователем
+	LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error
 }
 
 type WaypointRepository interface {

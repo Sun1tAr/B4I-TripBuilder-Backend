@@ -164,8 +164,12 @@ func (r *ParticipantRepository) Remove(ctx context.Context, eventID, userID uuid
 	return nil
 }
 
+// IsParticipant проверяет, является ли пользователь участником со статусом accepted
 func (r *ParticipantRepository) IsParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
-	query := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE event_id = $1 AND user_id = $2)", r.table())
+	query := fmt.Sprintf(`
+		SELECT EXISTS(SELECT 1 FROM %s 
+		WHERE event_id = $1 AND user_id = $2 AND status = 'accepted')
+	`, r.table())
 	var exists bool
 	err := r.db.QueryRowContext(ctx, query, eventID, userID).Scan(&exists)
 	if err != nil {
@@ -175,8 +179,12 @@ func (r *ParticipantRepository) IsParticipant(ctx context.Context, eventID, user
 	return exists, nil
 }
 
+// IsOwner проверяет, является ли пользователь владельцем со статусом accepted
 func (r *ParticipantRepository) IsOwner(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
-	query := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE event_id = $1 AND user_id = $2 AND role = 'owner')", r.table())
+	query := fmt.Sprintf(`
+		SELECT EXISTS(SELECT 1 FROM %s 
+		WHERE event_id = $1 AND user_id = $2 AND role = 'owner' AND status = 'accepted')
+	`, r.table())
 	var exists bool
 	err := r.db.QueryRowContext(ctx, query, eventID, userID).Scan(&exists)
 	if err != nil {
@@ -250,6 +258,32 @@ func (r *ParticipantRepository) LinkInvitedParticipant(ctx context.Context, even
 			Status:  "accepted",
 		}
 		return r.Add(ctx, participant)
+	}
+
+	return nil
+}
+
+// LinkAllInvitationsByEmail связывает все приглашения с указанным email с пользователем
+func (r *ParticipantRepository) LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error {
+	query := fmt.Sprintf(`
+		UPDATE %s SET user_id = $1, invited_email = NULL
+		WHERE invited_email = $2 AND status = 'pending'
+	`, r.table())
+
+	result, err := r.db.ExecContext(ctx, query, userID, email)
+	if err != nil {
+		r.log.Error("ParticipantRepository.LinkAllInvitationsByEmail: ошибка обновления",
+			"error", err, "user_id", userID, "email", email)
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows > 0 {
+		r.log.Info("ParticipantRepository.LinkAllInvitationsByEmail: приглашения связаны",
+			"user_id", userID, "email", email, "count", rows)
+	} else {
+		r.log.Debug("ParticipantRepository.LinkAllInvitationsByEmail: приглашения не найдены",
+			"user_id", userID, "email", email)
 	}
 
 	return nil
