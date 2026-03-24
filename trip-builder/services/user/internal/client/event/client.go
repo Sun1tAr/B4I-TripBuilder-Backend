@@ -14,8 +14,8 @@ import (
 type Event struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
+	StartDate time.Time `json:"startDate"`
+	EndDate   time.Time `json:"endDate"`
 	Status    string    `json:"status"`
 }
 
@@ -37,33 +37,53 @@ func NewClient(baseURL string, retryCfg retry.RetryConfig, log *logger.Logger) *
 	}
 }
 
-// GetUserEvents пытается получить события синхронно, при недоступности Event Service отправляет в retry queue
+// GetUserEvents получает события пользователя из Event Service
 func (c *Client) GetUserEvents(ctx context.Context, userID string) ([]Event, error) {
-	url := fmt.Sprintf("%s/api/v1/events/user/%s", c.baseURL, userID)
+	url := fmt.Sprintf("%s/api/v1/events/my", c.baseURL)
+	c.log.Debug("EventClient.GetUserEvents: запрос", "url", url, "user_id", userID)
 
-	// Пробуем синхронно
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	// Добавляем X-User-ID из контекста
+	if userID != "" {
+		req.Header.Set("X-User-ID", userID)
+	}
+
+	// Пробуем синхронно
 	resp, err := c.httpClient.Do(req)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		defer resp.Body.Close()
-		var events []Event
-		if err := json.NewDecoder(resp.Body).Decode(&events); err == nil {
-			return events, nil
+
+		var result struct {
+			Items []Event `json:"items"`
+			Total int64   `json:"total"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+			c.log.Debug("EventClient.GetUserEvents: успешно", "user_id", userID, "count", len(result.Items))
+			return result.Items, nil
 		}
 	}
 
 	// Если не получилось, логируем и отправляем в retry
-	c.log.Warn("Синхронный вызов Event Service не удался, отправляем в retry", "user_id", userID, "error", err)
+	c.log.Warn("Синхронный вызов Event Service не удался, отправляем в retry",
+		"user_id", userID,
+		"error", err,
+		"status_code", func() int {
+			if resp != nil {
+				return resp.StatusCode
+			}
+			return 0
+		}(),
+	)
 
 	// Сохраняем запрос в retry очередь
 	failedReq := retry.FailedRequest{
 		Method:      "GET",
 		URL:         url,
-		Headers:     map[string]string{},
+		Headers:     map[string]string{"X-User-ID": userID},
 		Body:        nil,
 		Attempts:    0,
 		LastError:   err.Error(),
