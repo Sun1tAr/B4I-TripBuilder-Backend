@@ -26,7 +26,7 @@ func AuthRequired(jwtSecret string, log *logger.Logger) func(http.Handler) http.
 
 			userID, ok := extractAndValidateToken(r, jwtSecret, log)
 			if !ok {
-				handlers.WriteError(w, http.StatusUnauthorized, "missing authorization token", "")
+				handlers.WriteError(w, http.StatusUnauthorized, "missing or invalid authorization token", "")
 				return
 			}
 
@@ -39,7 +39,10 @@ func AuthRequired(jwtSecret string, log *logger.Logger) func(http.Handler) http.
 	}
 }
 
-// AuthOptional — для условно-закрытых маршрутов (если есть токен — валидируем и передаём, если нет — пропускаем)
+// AuthOptional — для условно-закрытых маршрутов
+// - если токена нет — анонимный доступ
+// - если токен есть и валидный — передаём user_id
+// - если токен есть но невалидный — возвращаем 401
 func AuthOptional(jwtSecret string, log *logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,17 +51,29 @@ func AuthOptional(jwtSecret string, log *logger.Logger) func(http.Handler) http.
 				"method", r.Method,
 			)
 
-			userID, ok := extractAndValidateToken(r, jwtSecret, log)
-			if ok {
-				log.Debug("AuthOptional: token valid, setting user_id", "user_id", userID)
-				r.Header.Set("X-User-ID", userID)
-				ctx := context.WithValue(r.Context(), UserIDKey, userID)
-				next.ServeHTTP(w, r.WithContext(ctx))
+			authHeader := r.Header.Get("Authorization")
+
+			// Если заголовка нет — анонимный доступ
+			if authHeader == "" {
+				log.Debug("AuthOptional: no token, proceeding as anonymous")
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			log.Debug("AuthOptional: no valid token, proceeding as anonymous")
-			next.ServeHTTP(w, r)
+			// Если заголовок есть — пробуем валидировать
+			userID, ok := extractAndValidateToken(r, jwtSecret, log)
+			if !ok {
+				// Токен есть, но невалидный — возвращаем 401
+				log.Warn("AuthOptional: invalid token, returning 401")
+				handlers.WriteError(w, http.StatusUnauthorized, "invalid authorization token", "")
+				return
+			}
+
+			log.Debug("AuthOptional: token valid, setting user_id", "user_id", userID)
+			r.Header.Set("X-User-ID", userID)
+			ctx := context.WithValue(r.Context(), UserIDKey, userID)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

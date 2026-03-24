@@ -22,5 +22,10 @@ cd ..\route
 go mod tidy
 go mod vendor
 
+Write-Host "Update Event" -ForegroundColor Green
+cd ..\event
+go mod tidy
+go mod vendor
+
 Write-Host "Back road" -ForegroundColor Green
 cd ..\..\..\.scripts

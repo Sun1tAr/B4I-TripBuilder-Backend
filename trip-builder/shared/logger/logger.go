@@ -228,3 +228,7 @@ func getGoroutineID() string {
 	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
 	return idField
 }
+
+func (l *Logger) Trace(msg string, args ...any) {
+	l.Log(context.Background(), LevelTrace, msg, args...)
+}

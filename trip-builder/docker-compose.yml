@@ -63,7 +63,6 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-
     networks:
       - trip-builder-network
     healthcheck:
@@ -91,8 +90,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-#      kafka:
-#        condition: service_healthy
     restart: unless-stopped
 
   user:
@@ -143,6 +140,25 @@ services:
       - trip-builder-network
     depends_on:
       postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  event:
+    build:
+      context: services/event/
+      dockerfile: Dockerfile
+    image: ${EVENT_IMAGE:-trip-builder-event:local}
+    container_name: ${EVENT_CONTAINER_NAME:-trip-builder-backend-event}
+    env_file:
+      - services/event/.env
+    ports:
+      - "${EVENT_PORT:-8084}:8084"
+    networks:
+      - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     restart: unless-stopped
 

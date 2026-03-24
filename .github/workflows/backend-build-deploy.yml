@@ -10,6 +10,7 @@ on:
       SSH_USER:
         required: true
 
+    # jDoc Входные переменные
     inputs:
       contour:
         description: 'Environment contour (development/production)'
@@ -122,6 +123,15 @@ on:
         type: string
       route_container_name:
         description: 'Route container name'
+        required: true
+        type: string
+
+      event_port:
+        description: 'Event service port'
+        required: true
+        type: string
+      event_container_name:
+        description: 'Event container name'
         required: true
         type: string
 
@@ -301,7 +311,7 @@ jobs:
             fi
           done
 
-      # Переменные композы с единым временем workflow
+      # jDoc Переменные композы с единым временем workflow
       - name: Create docker-compose .env file on server
         run: |
           # Формируем читаемый тег с единым временем workflow и коротким SHA
@@ -332,6 +342,9 @@ jobs:
           ROUTE_PORT=${{ inputs.route_port }}
           ROUTE_CONTAINER_NAME=${{ inputs.route_container_name }}
           ROUTE_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/route:$HUMAN_TAG
+          EVENT_PORT=${{ inputs.event_port }}
+          EVENT_CONTAINER_NAME=${{ inputs.event_container_name }}
+          EVENT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/event:$HUMAN_TAG
           EOF"
 
       - name: Login to GHCR on server
