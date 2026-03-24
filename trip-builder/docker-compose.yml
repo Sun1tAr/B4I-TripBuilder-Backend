@@ -147,12 +147,12 @@ services:
     build:
       context: services/event/
       dockerfile: Dockerfile
-    image: ${EVENT_IMAGE:-trip-builder-event:local}  #fixme
-    container_name: ${EVENT_CONTAINER_NAME:-trip-builder-backend-event} #fixme
+    image: ${EVENT_IMAGE:-trip-builder-event:local}
+    container_name: ${EVENT_CONTAINER_NAME:-trip-builder-backend-event}
     env_file:
       - services/event/.env
     ports:
-      - "${EVENT_PORT:-8084}:8084" #fixme
+      - "${EVENT_PORT:-8084}:8084"
     networks:
       - trip-builder-network
     depends_on:

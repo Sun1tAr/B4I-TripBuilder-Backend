@@ -62,12 +62,18 @@ jobs:
       zookeeper_port: 2181
       kafka_container_name: kafka-test
       kafka_port: 9092
+
+      # jDoc топики кафки
       kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
         "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
-        , "route.updated", "route.deleted"]'
+        , "route.updated", "route.deleted",
+        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited"]'
 
       route_port: 9003
       route_container_name: trip-builder-backend-route-test
+
+      event_port: 9004
+      event_container_name: trip-builder-backend-event-test
 
 
     secrets:
