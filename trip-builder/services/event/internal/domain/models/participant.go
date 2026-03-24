@@ -7,6 +7,7 @@ import (
 )
 
 type Participant struct {
+	InviteID     uuid.UUID `json:"invite_id"`
 	EventID      uuid.UUID `json:"event_id"`
 	UserID       uuid.UUID `json:"user_id"`
 	Role         string    `json:"role"`   // owner, member
