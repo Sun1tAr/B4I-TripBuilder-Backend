@@ -38,7 +38,8 @@ jobs:
       # Передаём вычисленное время
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
-      services: '["auth", "user", "gateway", "route"]'
+      # jDoc сервисы
+      services: '["auth", "user", "gateway", "route", "event"]'
 
       auth_port: 9001
       auth_container_name: trip-builder-backend-auth-test
