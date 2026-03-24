@@ -45,6 +45,19 @@ func main() {
 	// API роутер с префиксом /api/v1
 	api := r.PathPrefix("/api/v1").Subrouter()
 
+	// ========== УСЛОВНО-ЗАКРЫТЫЕ МАРШРУТЫ (опциональная авторизация) ==========
+	// Эти маршруты доступны всем, но если есть токен — он валидируется и передаётся
+	conditional := api.PathPrefix("").Subrouter()
+	conditional.Use(middleware.AuthOptional(cfg.JWTSecret, log))
+
+	// Events - условно-закрытые (конкретные пути ДО общих)
+	conditional.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
+	conditional.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
+	conditional.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("GET")
+
+	// Routes - условно-закрытые
+	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
+
 	// ========== ЗАКРЫТЫЕ МАРШРУТЫ (требуют авторизацию) ==========
 	protected := api.PathPrefix("").Subrouter()
 	protected.Use(middleware.AuthRequired(cfg.JWTSecret, log))
@@ -72,8 +85,10 @@ func main() {
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("PUT")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("DELETE")
 
-	// Events
-	protected.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
+	// Events - защищённые (POST, PUT, DELETE, управление участниками)
+	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
+	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("DELETE")
 	protected.HandleFunc("/events/{id}/join", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}/leave", handlers.Proxy(cfg, "event")).Methods("DELETE")
 	protected.HandleFunc("/events/{id}/accept/{userId}", handlers.Proxy(cfg, "event")).Methods("POST")
@@ -83,10 +98,6 @@ func main() {
 	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/visit", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/media", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/comments", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("GET")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("DELETE")
 
 	// Tasks
 	protected.HandleFunc("/tasks", handlers.Proxy(cfg, "task")).Methods("GET")
@@ -126,13 +137,6 @@ func main() {
 	protected.HandleFunc("/notifications/device", handlers.Proxy(cfg, "notification")).Methods("POST")
 	protected.HandleFunc("/notifications/device/{token}", handlers.Proxy(cfg, "notification")).Methods("DELETE")
 
-	// ========== УСЛОВНО-ЗАКРЫТЫЕ МАРШРУТЫ (опциональная авторизация) ==========
-	conditional := api.PathPrefix("").Subrouter()
-	conditional.Use(middleware.AuthOptional(cfg.JWTSecret, log))
-
-	// Routes - условно-закрытые (передаём user_id если есть)
-	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
-
 	// ========== ОТКРЫТЫЕ МАРШРУТЫ (без авторизации) ==========
 	public := api.PathPrefix("").Subrouter()
 
@@ -149,8 +153,8 @@ func main() {
 	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
 
-	// Events - открытые
-	public.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
+	// Events - открытые (уже в conditional, но дубль для безопасности)
+	// public.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET") // уже в conditional
 
 	// Middleware
 	handler := middleware.Recovery(log)(r)
