@@ -37,6 +37,12 @@ func (c *Client) GetRouteWithWaypoints(ctx context.Context, routeID string) (*mo
 		return nil, err
 	}
 
+	// Передаём X-User-ID из контекста, если он есть
+	if userID, ok := ctx.Value("user_id").(string); ok && userID != "" {
+		req.Header.Set("X-User-ID", userID)
+		c.log.Debug("RouteClient.GetRouteWithWaypoints: передаём X-User-ID", "user_id", userID)
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.log.Error("RouteClient.GetRouteWithWaypoints: ошибка запроса", "error", err, "route_id", routeID)
