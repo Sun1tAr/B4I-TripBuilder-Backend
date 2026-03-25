@@ -10,8 +10,8 @@ type Participant struct {
 	InviteID     uuid.UUID `json:"invite_id"`
 	EventID      uuid.UUID `json:"event_id"`
 	UserID       uuid.UUID `json:"user_id"`
-	Role         string    `json:"role"`   // owner, member
-	Status       string    `json:"status"` // pending, accepted, declined
+	Role         string    `json:"role"`
+	Status       string    `json:"status"`
 	InvitedEmail string    `json:"invited_email,omitempty"`
 	JoinedAt     time.Time `json:"joined_at"`
 }

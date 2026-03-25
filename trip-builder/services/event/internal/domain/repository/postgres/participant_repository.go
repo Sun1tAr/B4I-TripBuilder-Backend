@@ -30,28 +30,30 @@ func (r *ParticipantRepository) table() string {
 	return fmt.Sprintf("%s.event_participants", r.schema)
 }
 
+// Add добавляет участника или приглашение
 func (r *ParticipantRepository) Add(ctx context.Context, participant *models.Participant) error {
-	// Генерируем invite_id, если его нет
 	if participant.InviteID == uuid.Nil {
 		participant.InviteID = uuid.New()
 	}
 
 	query := fmt.Sprintf(`
-        INSERT INTO %s (invite_id, event_id, user_id, role, status, invited_email, joined_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-        ON CONFLICT (event_id, user_id) DO UPDATE SET
-            status = EXCLUDED.status,
-            role = EXCLUDED.role,
-            invite_id = EXCLUDED.invite_id
-    `, r.table())
+		INSERT INTO %s (invite_id, event_id, user_id, role, status, invited_email, joined_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+	`, r.table())
 
 	_, err := r.db.ExecContext(ctx, query,
 		participant.InviteID, participant.EventID, participant.UserID,
 		participant.Role, participant.Status, participant.InvitedEmail,
 	)
-	return err
+	if err != nil {
+		r.log.Error("ParticipantRepository.Add: ошибка добавления", "error", err, "event_id", participant.EventID)
+		return err
+	}
+
+	return nil
 }
 
+// AddBatch добавляет нескольких участников массово
 func (r *ParticipantRepository) AddBatch(ctx context.Context, eventID uuid.UUID, userIDs []uuid.UUID) error {
 	if len(userIDs) == 0 {
 		return nil
@@ -69,18 +71,20 @@ func (r *ParticipantRepository) AddBatch(ctx context.Context, eventID uuid.UUID,
 	}
 
 	query := fmt.Sprintf(`
-        INSERT INTO %s (invite_id, event_id, user_id, role, status, invited_email, joined_at)
-        VALUES %s
-        ON CONFLICT (event_id, user_id) DO UPDATE SET
-            status = EXCLUDED.status,
-            role = EXCLUDED.role
-    `, r.table(), strings.Join(valueStrings, ","))
+		INSERT INTO %s (invite_id, event_id, user_id, role, status, invited_email, joined_at)
+		VALUES %s
+	`, r.table(), strings.Join(valueStrings, ","))
 
 	_, err := r.db.ExecContext(ctx, query, args...)
-	return err
+	if err != nil {
+		r.log.Error("ParticipantRepository.AddBatch: ошибка массового добавления", "error", err, "event_id", eventID)
+		return err
+	}
+
+	return nil
 }
 
-// GetByEventID получает всех участников события (включая приглашённых)
+// GetByEventID получает всех участников события
 func (r *ParticipantRepository) GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error) {
 	query := fmt.Sprintf(`
 		SELECT invite_id, event_id, user_id, role, status, invited_email, joined_at
@@ -122,9 +126,10 @@ func (r *ParticipantRepository) GetByEventID(ctx context.Context, eventID uuid.U
 	return participants, nil
 }
 
+// GetByUserAndEvent получает участника по событию и пользователю
 func (r *ParticipantRepository) GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error) {
 	query := fmt.Sprintf(`
-		SELECT event_id, user_id, role, status, invited_email, joined_at
+		SELECT invite_id, event_id, user_id, role, status, invited_email, joined_at
 		FROM %s WHERE event_id = $1 AND user_id = $2
 	`, r.table())
 
@@ -132,7 +137,7 @@ func (r *ParticipantRepository) GetByUserAndEvent(ctx context.Context, eventID, 
 	var invitedEmail sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, eventID, userID).Scan(
-		&p.EventID, &p.UserID, &p.Role, &p.Status, &invitedEmail, &p.JoinedAt,
+		&p.InviteID, &p.EventID, &p.UserID, &p.Role, &p.Status, &invitedEmail, &p.JoinedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -149,6 +154,7 @@ func (r *ParticipantRepository) GetByUserAndEvent(ctx context.Context, eventID, 
 	return p, nil
 }
 
+// UpdateStatus обновляет статус участника
 func (r *ParticipantRepository) UpdateStatus(ctx context.Context, eventID, userID uuid.UUID, status string) error {
 	query := fmt.Sprintf("UPDATE %s SET status = $1 WHERE event_id = $2 AND user_id = $3", r.table())
 	_, err := r.db.ExecContext(ctx, query, status, eventID, userID)
@@ -159,6 +165,7 @@ func (r *ParticipantRepository) UpdateStatus(ctx context.Context, eventID, userI
 	return nil
 }
 
+// Remove удаляет участника
 func (r *ParticipantRepository) Remove(ctx context.Context, eventID, userID uuid.UUID) error {
 	query := fmt.Sprintf("DELETE FROM %s WHERE event_id = $1 AND user_id = $2", r.table())
 	result, err := r.db.ExecContext(ctx, query, eventID, userID)
@@ -202,6 +209,7 @@ func (r *ParticipantRepository) IsOwner(ctx context.Context, eventID, userID uui
 	return exists, nil
 }
 
+// CountByEventID считает количество принятых участников
 func (r *ParticipantRepository) CountByEventID(ctx context.Context, eventID uuid.UUID) (int, error) {
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE event_id = $1 AND status = 'accepted'", r.table())
 	var count int
@@ -213,9 +221,10 @@ func (r *ParticipantRepository) CountByEventID(ctx context.Context, eventID uuid
 	return count, nil
 }
 
+// FindByInvitedEmail находит приглашение по email
 func (r *ParticipantRepository) FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error) {
 	query := fmt.Sprintf(`
-		SELECT event_id, user_id, role, status, invited_email, joined_at
+		SELECT invite_id, event_id, user_id, role, status, invited_email, joined_at
 		FROM %s WHERE event_id = $1 AND invited_email = $2
 	`, r.table())
 
@@ -224,7 +233,7 @@ func (r *ParticipantRepository) FindByInvitedEmail(ctx context.Context, eventID 
 	var userID sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, eventID, email).Scan(
-		&p.EventID, &userID, &p.Role, &p.Status, &invitedEmail, &p.JoinedAt,
+		&p.InviteID, &p.EventID, &userID, &p.Role, &p.Status, &invitedEmail, &p.JoinedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -244,10 +253,11 @@ func (r *ParticipantRepository) FindByInvitedEmail(ctx context.Context, eventID 
 	return p, nil
 }
 
+// LinkInvitedParticipant связывает приглашение с пользователем по invite_id
 func (r *ParticipantRepository) LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error {
 	query := fmt.Sprintf(`
 		UPDATE %s SET user_id = $1, invited_email = NULL
-		WHERE event_id = $2 AND invited_email = $3
+		WHERE event_id = $2 AND invited_email = $3 AND status = 'pending'
 	`, r.table())
 
 	result, err := r.db.ExecContext(ctx, query, userID, eventID, email)
@@ -268,6 +278,7 @@ func (r *ParticipantRepository) LinkInvitedParticipant(ctx context.Context, even
 		return r.Add(ctx, participant)
 	}
 
+	r.log.Debug("ParticipantRepository.LinkInvitedParticipant: приглашение связано", "event_id", eventID, "user_id", userID, "email", email)
 	return nil
 }
 
