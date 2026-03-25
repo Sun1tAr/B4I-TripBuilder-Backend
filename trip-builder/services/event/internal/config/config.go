@@ -25,6 +25,7 @@ type Config struct {
 	// URL других сервисов
 	RouteServiceURL string `envconfig:"ROUTE_SERVICE_URL" required:"true"`
 	UserServiceURL  string `envconfig:"USER_SERVICE_URL" required:"true"`
+	AuthServiceURL  string `envconfig:"AUTH_SERVICE_URL" required:"true"` // добавить
 
 	// Настройки миграций
 	MigrationEnabled bool `envconfig:"MIGRATION_ENABLED" default:"true"`

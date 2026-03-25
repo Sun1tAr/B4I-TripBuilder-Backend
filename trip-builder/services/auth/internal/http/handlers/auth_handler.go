@@ -1,21 +1,21 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"bytes"
 	"net/http"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/utils"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	authdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/auth"
 	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -341,4 +341,32 @@ func (h *AuthHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, map[string]string{"user_id": userID})
+}
+
+// GetUserByEmail получает пользователя по email (внутренний эндпоинт для Event Service)
+func (h *AuthHandler) GetUserByEmail(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		h.writeError(w, http.StatusBadRequest, "email is required", "")
+		return
+	}
+
+	h.log.Debug("GetUserByEmail: запрос", "email", email)
+
+	user, err := h.authService.GetUserByEmail(r.Context(), email)
+	if err != nil {
+		h.log.Error("GetUserByEmail: ошибка", "error", err, "email", email)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	if user == nil {
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"message": "user not found"})
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user_id": user.ID,
+		"email":   user.Email,
+	})
 }

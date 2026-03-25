@@ -84,25 +84,30 @@ func (r *EventRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) 
 	return r.GetByID(ctx, id)
 }
 
+// ListByUserID возвращает поездки, в которых пользователь является участником
 func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, status string, limit, offset int) ([]models.Event, int64, error) {
+	participantsTable := fmt.Sprintf("%s.event_participants", r.schema)
+
 	args := []interface{}{userID}
 	argPos := 2
 	statusFilter := ""
 
 	if status != "" {
-		statusFilter = fmt.Sprintf(" AND status = $%d", argPos)
+		statusFilter = fmt.Sprintf(" AND e.status = $%d", argPos)
 		args = append(args, status)
 		argPos++
 	}
 
+	// Получаем данные
 	query := fmt.Sprintf(`
-		SELECT id, route_id, title, description, owner_id, start_date, end_date,
-		       is_group, status, is_public, created_at, updated_at
-		FROM %s
-		WHERE owner_id = $1%s
-		ORDER BY start_date DESC
-		LIMIT $%d OFFSET $%d
-	`, r.table(), statusFilter, argPos, argPos+1)
+        SELECT e.id, e.route_id, e.title, e.description, e.owner_id, e.start_date, e.end_date,
+               e.is_group, e.status, e.is_public, e.created_at, e.updated_at
+        FROM %s e
+        JOIN %s p ON e.id = p.event_id
+        WHERE p.user_id = $1%s
+        ORDER BY e.start_date DESC
+        LIMIT $%d OFFSET $%d
+    `, r.table(), participantsTable, statusFilter, argPos, argPos+1)
 
 	args = append(args, limit, offset)
 
@@ -134,17 +139,21 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 		events = append(events, event)
 	}
 
+	// Получаем общее количество
 	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE owner_id = $1%s
-	`, r.table(), statusFilter)
+        SELECT COUNT(*)
+        FROM %s e
+        JOIN %s p ON e.id = p.event_id
+        WHERE p.user_id = $1%s
+    `, r.table(), participantsTable, statusFilter)
 
-	argsCount := []interface{}{userID}
+	countArgs := []interface{}{userID}
 	if status != "" {
-		argsCount = append(argsCount, status)
+		countArgs = append(countArgs, status)
 	}
 
 	var total int64
-	err = r.db.QueryRowContext(ctx, countQuery, argsCount...).Scan(&total)
+	err = r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total)
 	if err != nil {
 		r.log.Error("EventRepository.ListByUserID: ошибка подсчёта", "error", err)
 		return nil, 0, err

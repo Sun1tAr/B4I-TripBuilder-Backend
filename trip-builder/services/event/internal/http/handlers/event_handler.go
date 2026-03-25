@@ -124,14 +124,35 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
+	// Парсим параметры пагинации (опционально)
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+
+	var page, size int
+	var err error
+
+	// Если параметры не указаны, возвращаем все записи
+	if pageStr == "" && sizeStr == "" {
+		// Устанавливаем очень большой лимит (например, 10000)
+		// или можно использовать 0, но в репозитории нужно обработать
 		page = 1
+		size = 10000
+		log.Debug("GetMyEvents: пагинация не указана, возвращаем все записи")
+	} else {
+		page, err = strconv.Atoi(pageStr)
+		if err != nil || page < 1 {
+			page = 1
+		}
+
+		size, err = strconv.Atoi(sizeStr)
+		if err != nil || size < 1 {
+			size = 10
+		}
+		if size > 100 {
+			size = 100
+		}
 	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 || size > 100 {
-		size = 10
-	}
+
 	status := r.URL.Query().Get("status")
 
 	events, total, err := h.eventService.GetMyEvents(r.Context(), *userID, status, page, size)
@@ -164,13 +185,29 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	log.Debug("GetPublicEvents: запрос публичных поездок")
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+
+	var page, size int
+	var err error
+
+	if pageStr == "" && sizeStr == "" {
 		page = 1
-	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 || size > 100 {
-		size = 10
+		size = 10000
+		log.Debug("GetPublicEvents: пагинация не указана, возвращаем все записи")
+	} else {
+		page, err = strconv.Atoi(pageStr)
+		if err != nil || page < 1 {
+			page = 1
+		}
+
+		size, err = strconv.Atoi(sizeStr)
+		if err != nil || size < 1 {
+			size = 10
+		}
+		if size > 100 {
+			size = 100
+		}
 	}
 
 	events, total, err := h.eventService.GetPublicEvents(r.Context(), page, size)
@@ -738,13 +775,24 @@ func (h *EventHandler) GetMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+
+	var page, size int
+
+	if pageStr == "" && sizeStr == "" {
 		page = 1
-	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 || size > 100 {
-		size = 20
+		size = 10000
+		log.Debug("GetMedia: пагинация не указана, возвращаем все записи")
+	} else {
+		page, _ = strconv.Atoi(pageStr)
+		if page < 1 {
+			page = 1
+		}
+		size, _ = strconv.Atoi(sizeStr)
+		if size < 1 || size > 100 {
+			size = 20
+		}
 	}
 
 	mediaList, total, err := h.eventService.GetMedia(r.Context(), waypointID, page, size)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/auth"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/route"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
@@ -32,6 +33,7 @@ type EventService struct {
 	mediaRepo       repository.MediaRepository
 	commentRepo     repository.CommentRepository
 	routeClient     *route.Client
+	authClient      *auth.Client
 	producer        *kafka.EventProducer
 	log             *logger.Logger
 }
@@ -43,6 +45,7 @@ func NewEventService(
 	mediaRepo repository.MediaRepository,
 	commentRepo repository.CommentRepository,
 	routeClient *route.Client,
+	authClient *auth.Client,
 	producer *kafka.EventProducer,
 	log *logger.Logger,
 ) *EventService {
@@ -53,6 +56,7 @@ func NewEventService(
 		mediaRepo:       mediaRepo,
 		commentRepo:     commentRepo,
 		routeClient:     routeClient,
+		authClient:      authClient,
 		producer:        producer,
 		log:             log,
 	}
@@ -85,7 +89,7 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 	now := time.Now()
 	s.log.Trace("CreateEvent: создание события", "event_id", eventID)
 
-	// Рассчитываем даты точек (передаём eventID)
+	// Рассчитываем даты точек
 	s.log.Trace("CreateEvent: расчёт дат точек", "start_date", req.StartDate, "waypoints_count", len(routeData.Waypoints))
 	waypoints := s.calculateWaypointDates(routeData.Waypoints, req.StartDate, eventID)
 	s.log.Trace("CreateEvent: точки рассчитаны", "waypoints_count", len(waypoints))
@@ -121,10 +125,11 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 
 	// Добавляем владельца как участника
 	participant := &models.Participant{
-		EventID: eventID,
-		UserID:  userID,
-		Role:    "owner",
-		Status:  "accepted",
+		InviteID: uuid.New(),
+		EventID:  eventID,
+		UserID:   userID,
+		Role:     "owner",
+		Status:   "accepted",
 	}
 	if err := s.participantRepo.Add(ctx, participant); err != nil {
 		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
@@ -136,19 +141,48 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 	participants := []uuid.UUID{userID}
 	if req.IsGroup && len(req.InvitedEmails) > 0 {
 		s.log.Trace("CreateEvent: обработка приглашений", "invited_emails", req.InvitedEmails)
+
 		for _, email := range req.InvitedEmails {
-			invite := &models.Participant{
-				InviteID:     uuid.New(),
-				EventID:      eventID,
-				UserID:       uuid.Nil,
-				Role:         "member",
-				Status:       "pending",
-				InvitedEmail: email,
+			// Проверяем, существует ли пользователь с таким email
+			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
+			if err != nil {
+				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
+				continue
 			}
-			if err := s.participantRepo.Add(ctx, invite); err != nil {
-				s.log.Error("CreateEvent: ошибка создания приглашения", "error", err, "email", email)
+
+			var invite *models.Participant
+
+			if userInfo != nil {
+				// Пользователь уже зарегистрирован — добавляем сразу с user_id
+				invite = &models.Participant{
+					InviteID:     uuid.New(),
+					EventID:      eventID,
+					UserID:       userInfo.UserID,
+					Role:         "member",
+					Status:       "pending",
+					InvitedEmail: "",
+				}
+				s.log.Trace("CreateEvent: пользователь найден, создаём участника",
+					"event_id", eventID, "user_id", userInfo.UserID, "email", email)
+
+				// Добавляем в список участников для Kafka события
+				participants = append(participants, userInfo.UserID)
 			} else {
-				s.log.Trace("CreateEvent: приглашение создано", "event_id", eventID, "email", email)
+				// Пользователь не зарегистрирован — создаём приглашение
+				invite = &models.Participant{
+					InviteID:     uuid.New(),
+					EventID:      eventID,
+					UserID:       uuid.Nil,
+					Role:         "member",
+					Status:       "pending",
+					InvitedEmail: email,
+				}
+				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение",
+					"event_id", eventID, "email", email)
+			}
+
+			if err := s.participantRepo.Add(ctx, invite); err != nil {
+				s.log.Error("CreateEvent: ошибка создания", "error", err, "email", email)
 			}
 		}
 	}
@@ -238,7 +272,7 @@ func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID, user
 	return result, nil
 }
 
-// GetMyEvents получает поездки пользователя
+// GetMyEvents получает поездки пользователя (где он является участником)
 func (s *EventService) GetMyEvents(ctx context.Context, userID uuid.UUID, status string, page, size int) ([]models.Event, int64, error) {
 	s.log.Debug("GetMyEvents: начало", "user_id", userID, "status", status, "page", page, "size", size)
 
@@ -448,10 +482,11 @@ func (s *EventService) JoinEvent(ctx context.Context, eventID, userID uuid.UUID)
 
 	// Добавляем участника
 	participant := &models.Participant{
-		EventID: eventID,
-		UserID:  userID,
-		Role:    "member",
-		Status:  "pending",
+		InviteID: uuid.New(),
+		EventID:  eventID,
+		UserID:   userID,
+		Role:     "member",
+		Status:   "pending",
 	}
 	s.log.Trace("JoinEvent: добавление участника", "event_id", eventID, "user_id", userID)
 	if err := s.participantRepo.Add(ctx, participant); err != nil {
@@ -874,7 +909,6 @@ func (s *EventService) StartStatusUpdater(ctx context.Context, interval time.Dur
 	}
 }
 
-// completeEvent завершает поездку
 func (s *EventService) completeEvent(ctx context.Context, eventID uuid.UUID) error {
 	s.log.Trace("completeEvent: начало", "event_id", eventID)
 
@@ -954,7 +988,7 @@ func (s *EventService) calculateWaypointDates(waypoints []models.RouteWaypoint, 
 
 		result = append(result, models.Waypoint{
 			ID:              uuid.New(),
-			EventID:         eventID, // <- добавляем EventID
+			EventID:         eventID,
 			RouteWaypointID: &wp.ID,
 			City:            wp.City,
 			Description:     wp.Description,
