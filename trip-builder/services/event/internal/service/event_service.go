@@ -138,6 +138,7 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 		s.log.Trace("CreateEvent: обработка приглашений", "invited_emails", req.InvitedEmails)
 		for _, email := range req.InvitedEmails {
 			invite := &models.Participant{
+				InviteID:     uuid.New(),
 				EventID:      eventID,
 				UserID:       uuid.Nil,
 				Role:         "member",
