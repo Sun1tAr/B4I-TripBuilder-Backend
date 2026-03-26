@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
@@ -30,6 +31,7 @@ func (r *WaypointRepository) table() string {
 	return fmt.Sprintf("%s.event_waypoints", r.schema)
 }
 
+// Create создаёт одну точку маршрута
 func (r *WaypointRepository) Create(ctx context.Context, waypoint *models.Waypoint) error {
 	query := fmt.Sprintf(`
 		INSERT INTO %s (id, event_id, route_waypoint_id, city, description, latitude, longitude,
@@ -51,6 +53,46 @@ func (r *WaypointRepository) Create(ctx context.Context, waypoint *models.Waypoi
 	return nil
 }
 
+// CreateBatch создаёт несколько точек маршрута массово
+func (r *WaypointRepository) CreateBatch(ctx context.Context, waypoints []models.Waypoint) error {
+	if len(waypoints) == 0 {
+		return nil
+	}
+
+	valueStrings := make([]string, 0, len(waypoints))
+	args := make([]interface{}, 0, len(waypoints)*12)
+	argPos := 1
+
+	for _, wp := range waypoints {
+		valueStrings = append(valueStrings, fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			argPos, argPos+1, argPos+2, argPos+3, argPos+4, argPos+5,
+			argPos+6, argPos+7, argPos+8, argPos+9, argPos+10, argPos+11,
+		))
+		args = append(args,
+			wp.ID, wp.EventID, wp.RouteWaypointID, wp.City, wp.Description,
+			wp.Latitude, wp.Longitude, wp.PlannedStart, wp.PlannedEnd,
+			wp.Status, wp.OrderIndex, wp.CreatedAt,
+		)
+		argPos += 12
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s (id, event_id, route_waypoint_id, city, description, latitude, longitude,
+		                planned_start, planned_end, status, order_index, created_at)
+		VALUES %s
+	`, r.table(), strings.Join(valueStrings, ","))
+
+	_, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		r.log.Error("WaypointRepository.CreateBatch: ошибка массового создания", "error", err)
+		return err
+	}
+
+	return nil
+}
+
+// GetByEventID получает все точки события
 func (r *WaypointRepository) GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Waypoint, error) {
 	query := fmt.Sprintf(`
 		SELECT id, event_id, route_waypoint_id, city, description, latitude, longitude,
@@ -83,14 +125,12 @@ func (r *WaypointRepository) GetByEventID(ctx context.Context, eventID uuid.UUID
 			return nil, err
 		}
 
-		// Преобразуем route_waypoint_id из string в uuid.UUID
 		if routeWaypointID.Valid && routeWaypointID.String != "" {
 			id, err := uuid.Parse(routeWaypointID.String)
 			if err == nil {
 				wp.RouteWaypointID = &id
 			}
 		}
-
 		if plannedStart.Valid {
 			wp.PlannedStart = &plannedStart.Time
 		}
@@ -113,6 +153,7 @@ func (r *WaypointRepository) GetByEventID(ctx context.Context, eventID uuid.UUID
 	return waypoints, nil
 }
 
+// GetByID получает точку по ID
 func (r *WaypointRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Waypoint, error) {
 	query := fmt.Sprintf(`
 		SELECT id, event_id, route_waypoint_id, city, description, latitude, longitude,
@@ -139,14 +180,12 @@ func (r *WaypointRepository) GetByID(ctx context.Context, id uuid.UUID) (*models
 		return nil, err
 	}
 
-	// Преобразуем route_waypoint_id из string в uuid.UUID
 	if routeWaypointID.Valid && routeWaypointID.String != "" {
-		uuidID, err := uuid.Parse(routeWaypointID.String)
+		id, err := uuid.Parse(routeWaypointID.String)
 		if err == nil {
-			wp.RouteWaypointID = &uuidID
+			wp.RouteWaypointID = &id
 		}
 	}
-
 	if plannedStart.Valid {
 		wp.PlannedStart = &plannedStart.Time
 	}
@@ -166,6 +205,7 @@ func (r *WaypointRepository) GetByID(ctx context.Context, id uuid.UUID) (*models
 	return wp, nil
 }
 
+// Update обновляет точку
 func (r *WaypointRepository) Update(ctx context.Context, waypoint *models.Waypoint) error {
 	query := fmt.Sprintf(`
 		UPDATE %s SET
@@ -191,6 +231,7 @@ func (r *WaypointRepository) Update(ctx context.Context, waypoint *models.Waypoi
 	return nil
 }
 
+// UpdateVisit обновляет фактическое время посещения
 func (r *WaypointRepository) UpdateVisit(ctx context.Context, id uuid.UUID, actualStart, actualEnd *time.Time) error {
 	query := fmt.Sprintf(`
 		UPDATE %s SET
@@ -210,6 +251,7 @@ func (r *WaypointRepository) UpdateVisit(ctx context.Context, id uuid.UUID, actu
 	return nil
 }
 
+// DeleteByEventID удаляет все точки события
 func (r *WaypointRepository) DeleteByEventID(ctx context.Context, eventID uuid.UUID) error {
 	query := fmt.Sprintf("DELETE FROM %s WHERE event_id = $1", r.table())
 	result, err := r.db.ExecContext(ctx, query, eventID)
@@ -223,6 +265,7 @@ func (r *WaypointRepository) DeleteByEventID(ctx context.Context, eventID uuid.U
 	return nil
 }
 
+// Exists проверяет существование точки
 func (r *WaypointRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
 	query := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)", r.table())
 	var exists bool

@@ -31,11 +31,12 @@ type EventDetailResponse struct {
 
 // ParticipantResponse DTO для участника
 type ParticipantResponse struct {
-	UserID       uuid.UUID `json:"user_id"`
-	Role         string    `json:"role"`
-	Status       string    `json:"status"`
-	InvitedEmail string    `json:"invited_email,omitempty"`
-	JoinedAt     time.Time `json:"joined_at"`
+	UserID          uuid.UUID `json:"user_id"`
+	Role            string    `json:"role"`
+	ApprovedByOwner bool      `json:"approved_by_owner"`
+	ApprovedByUser  bool      `json:"approved_by_user"`
+	InvitedEmail    string    `json:"invited_email,omitempty"`
+	JoinedAt        time.Time `json:"joined_at"`
 }
 
 // ParticipantWithUserResponse DTO для участника с данными профиля

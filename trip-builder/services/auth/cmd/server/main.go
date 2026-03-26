@@ -141,7 +141,9 @@ func main() {
 	api.HandleFunc("/verify/{token}", authHandler.VerifyEmail).Methods("GET")
 	api.HandleFunc("/reset-password", authHandler.RequestPasswordReset).Methods("POST")
 	api.HandleFunc("/reset-password/{token}", authHandler.ResetPassword).Methods("POST")
+
 	api.HandleFunc("/internal/users/by-email", authHandler.GetUserByEmail).Methods("GET")
+	api.HandleFunc("/internal/users/{id}/email", authHandler.GetUserEmail).Methods("GET")
 
 	// Защищённые маршруты (требуют JWT)
 	protected := api.PathPrefix("").Subrouter()

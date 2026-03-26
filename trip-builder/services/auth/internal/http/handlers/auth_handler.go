@@ -370,3 +370,28 @@ func (h *AuthHandler) GetUserByEmail(w http.ResponseWriter, r *http.Request) {
 		"email":   user.Email,
 	})
 }
+
+// GetUserEmail получает email пользователя по ID (внутренний эндпоинт для Event Service)
+func (h *AuthHandler) GetUserEmail(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userIDStr := vars["id"]
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid user id", "")
+		return
+	}
+
+	h.log.Debug("GetUserEmail: запрос", "user_id", userID)
+
+	email, err := h.authService.GetUserEmail(r.Context(), userID)
+	if err != nil {
+		h.log.Error("GetUserEmail: ошибка", "error", err, "user_id", userID)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{
+		"email": email,
+	})
+}

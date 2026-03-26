@@ -16,14 +16,16 @@ import (
 )
 
 var (
-	ErrEventNotFound      = errors.New("event not found")
-	ErrNotOwner           = errors.New("user is not the owner of this event")
-	ErrNotParticipant     = errors.New("user is not a participant of this event")
-	ErrAlreadyParticipant = errors.New("user is already a participant")
-	ErrEventNotActive     = errors.New("event is not active")
-	ErrEventAlreadyEnded  = errors.New("event has already ended")
-	ErrInvalidStartDate   = errors.New("start date cannot be in the past")
-	ErrInvalidWaypoint    = errors.New("invalid waypoint")
+	ErrEventNotFound          = errors.New("event not found")
+	ErrNotOwner               = errors.New("user is not the owner of this event")
+	ErrNotParticipant         = errors.New("user is not a participant of this event")
+	ErrAlreadyParticipant     = errors.New("user is already a participant")
+	ErrEventNotActive         = errors.New("event is not active")
+	ErrEventAlreadyEnded      = errors.New("event has already ended")
+	ErrInvalidStartDate       = errors.New("start date cannot be in the past")
+	ErrInvalidWaypoint        = errors.New("invalid waypoint")
+	ErrInviteNotFound         = errors.New("invitation not found")
+	ErrInviteAlreadyProcessed = errors.New("invitation already processed")
 )
 
 type EventService struct {
@@ -65,40 +67,31 @@ func NewEventService(
 // CreateEvent создаёт новую поездку
 func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *models.CreateEventRequest) (*models.EventWithDetails, error) {
 	s.log.Debug("CreateEvent: начало", "user_id", userID, "route_id", req.RouteID, "title", req.Title, "start_date", req.StartDate)
-	s.log.Trace("CreateEvent: детали запроса", "is_group", req.IsGroup, "invited_emails_count", len(req.InvitedEmails))
 
 	// Проверяем дату начала
-	s.log.Trace("CreateEvent: проверка даты начала", "start_date", req.StartDate, "now", time.Now())
 	if req.StartDate.Before(time.Now()) {
-		s.log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate, "now", time.Now())
+		s.log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
 		return nil, ErrInvalidStartDate
 	}
-	s.log.Trace("CreateEvent: дата начала валидна")
 
 	// Получаем маршрут из Route Service
-	s.log.Trace("CreateEvent: запрос маршрута из Route Service", "route_id", req.RouteID)
 	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, req.RouteID.String())
 	if err != nil {
 		s.log.Error("CreateEvent: ошибка получения маршрута", "error", err, "route_id", req.RouteID)
 		return nil, fmt.Errorf("failed to get route: %w", err)
 	}
-	s.log.Trace("CreateEvent: маршрут получен", "route_title", routeData.Title, "waypoints_count", len(routeData.Waypoints))
 
 	// Создаём ID события
 	eventID := uuid.New()
 	now := time.Now()
-	s.log.Trace("CreateEvent: создание события", "event_id", eventID)
 
 	// Рассчитываем даты точек
-	s.log.Trace("CreateEvent: расчёт дат точек", "start_date", req.StartDate, "waypoints_count", len(routeData.Waypoints))
 	waypoints := s.calculateWaypointDates(routeData.Waypoints, req.StartDate, eventID)
-	s.log.Trace("CreateEvent: точки рассчитаны", "waypoints_count", len(waypoints))
 
 	// Вычисляем дату окончания
 	endDate := req.StartDate
 	if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
 		endDate = *waypoints[len(waypoints)-1].PlannedEnd
-		s.log.Trace("CreateEvent: дата окончания вычислена", "end_date", endDate)
 	}
 
 	// Создаём событие
@@ -121,29 +114,25 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 		s.log.Error("CreateEvent: ошибка создания события с точками", "error", err, "event_id", eventID)
 		return nil, err
 	}
-	s.log.Trace("CreateEvent: событие и точки сохранены в БД", "event_id", eventID, "waypoints_count", len(waypoints))
 
-	// Добавляем владельца как участника
+	// Добавляем владельца как участника (approved_by_owner = true, approved_by_user = false)
 	participant := &models.Participant{
-		InviteID: uuid.New(),
-		EventID:  eventID,
-		UserID:   userID,
-		Role:     "owner",
-		Status:   "accepted",
+		InviteID:        uuid.New(),
+		EventID:         eventID,
+		UserID:          userID,
+		Role:            "owner",
+		ApprovedByOwner: true,
+		ApprovedByUser:  true,
 	}
 	if err := s.participantRepo.Add(ctx, participant); err != nil {
 		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
-	} else {
-		s.log.Trace("CreateEvent: владелец добавлен как участник", "event_id", eventID, "user_id", userID)
 	}
 
 	// Обрабатываем приглашения
 	participants := []uuid.UUID{userID}
 	if req.IsGroup && len(req.InvitedEmails) > 0 {
-		s.log.Trace("CreateEvent: обработка приглашений", "invited_emails", req.InvitedEmails)
-
 		for _, email := range req.InvitedEmails {
-			// Проверяем, существует ли пользователь с таким email
+			// Проверяем, существует ли пользователь
 			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
 			if err != nil {
 				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
@@ -153,32 +142,30 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 			var invite *models.Participant
 
 			if userInfo != nil {
-				// Пользователь уже зарегистрирован — добавляем сразу с user_id
+				// Пользователь уже зарегистрирован
 				invite = &models.Participant{
-					InviteID:     uuid.New(),
-					EventID:      eventID,
-					UserID:       userInfo.UserID,
-					Role:         "member",
-					Status:       "pending",
-					InvitedEmail: "",
+					InviteID:        uuid.New(),
+					EventID:         eventID,
+					UserID:          userInfo.UserID,
+					Role:            "member",
+					ApprovedByOwner: true,
+					ApprovedByUser:  false,
+					InvitedEmail:    "",
 				}
-				s.log.Trace("CreateEvent: пользователь найден, создаём участника",
-					"event_id", eventID, "user_id", userInfo.UserID, "email", email)
-
-				// Добавляем в список участников для Kafka события
 				participants = append(participants, userInfo.UserID)
+				s.log.Trace("CreateEvent: пользователь найден, создаём приглашение", "event_id", eventID, "user_id", userInfo.UserID, "email", email)
 			} else {
-				// Пользователь не зарегистрирован — создаём приглашение
+				// Пользователь не зарегистрирован
 				invite = &models.Participant{
-					InviteID:     uuid.New(),
-					EventID:      eventID,
-					UserID:       uuid.Nil,
-					Role:         "member",
-					Status:       "pending",
-					InvitedEmail: email,
+					InviteID:        uuid.New(),
+					EventID:         eventID,
+					UserID:          uuid.Nil,
+					Role:            "member",
+					ApprovedByOwner: true,
+					ApprovedByUser:  false,
+					InvitedEmail:    email,
 				}
-				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение",
-					"event_id", eventID, "email", email)
+				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение", "event_id", eventID, "email", email)
 			}
 
 			if err := s.participantRepo.Add(ctx, invite); err != nil {
@@ -188,23 +175,17 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 	}
 
 	// Публикуем событие
-	s.log.Trace("CreateEvent: публикация события в Kafka", "event_id", eventID)
 	if err := s.producer.PublishEventCreated(ctx, eventID, req.RouteID, userID, req.Title, req.StartDate, endDate, participants); err != nil {
 		s.log.Error("CreateEvent: ошибка публикации события", "error", err, "event_id", eventID)
-	} else {
-		s.log.Trace("CreateEvent: событие опубликовано", "event_id", eventID)
 	}
 
 	s.log.Info("CreateEvent: поездка создана", "event_id", eventID, "user_id", userID)
 
-	// Формируем ответ
-	result := &models.EventWithDetails{
+	return &models.EventWithDetails{
 		Event:        *event,
 		Participants: []models.Participant{*participant},
 		Waypoints:    waypoints,
-	}
-	s.log.Debug("CreateEvent: завершено", "event_id", eventID, "waypoints_count", len(waypoints), "participants_count", len(result.Participants))
-	return result, nil
+	}, nil
 }
 
 // GetEventByID получает поездку по ID
@@ -213,80 +194,53 @@ func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID, user
 
 	event, err := s.eventRepo.GetByID(ctx, eventID)
 	if err != nil {
-		s.log.Error("GetEventByID: ошибка получения события", "error", err, "event_id", eventID)
 		return nil, err
 	}
 	if event == nil {
-		s.log.Debug("GetEventByID: событие не найдено", "event_id", eventID)
 		return nil, ErrEventNotFound
 	}
-	s.log.Trace("GetEventByID: событие получено", "event_id", eventID, "title", event.Title, "is_public", event.IsPublic)
 
 	// Проверяем права доступа
 	if !event.IsPublic {
-		s.log.Trace("GetEventByID: событие приватное, проверка прав", "event_id", eventID, "user_id", userID)
 		if userID == nil {
-			s.log.Debug("GetEventByID: попытка доступа к приватному событию без авторизации", "event_id", eventID)
 			return nil, ErrEventNotFound
 		}
 		isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, *userID)
 		if err != nil {
-			s.log.Error("GetEventByID: ошибка проверки участия", "error", err, "event_id", eventID, "user_id", userID)
 			return nil, err
 		}
 		if !isParticipant {
-			s.log.Debug("GetEventByID: пользователь не участник приватного события", "event_id", eventID, "user_id", userID)
 			return nil, ErrEventNotFound
 		}
-		s.log.Trace("GetEventByID: пользователь участник приватного события", "event_id", eventID, "user_id", userID)
-	} else {
-		s.log.Trace("GetEventByID: событие публичное, доступ разрешён", "event_id", eventID)
 	}
 
 	// Получаем участников
-	s.log.Trace("GetEventByID: получение участников", "event_id", eventID)
 	participants, err := s.participantRepo.GetByEventID(ctx, eventID)
 	if err != nil {
-		s.log.Error("GetEventByID: ошибка получения участников", "error", err, "event_id", eventID)
+		s.log.Error("GetEventByID: ошибка получения участников", "error", err)
 		participants = []models.Participant{}
-	} else {
-		s.log.Trace("GetEventByID: участники получены", "event_id", eventID, "count", len(participants))
 	}
 
 	// Получаем точки
-	s.log.Trace("GetEventByID: получение точек маршрута", "event_id", eventID)
 	waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
 	if err != nil {
-		s.log.Error("GetEventByID: ошибка получения точек", "error", err, "event_id", eventID)
+		s.log.Error("GetEventByID: ошибка получения точек", "error", err)
 		waypoints = []models.Waypoint{}
-	} else {
-		s.log.Trace("GetEventByID: точки получены", "event_id", eventID, "count", len(waypoints))
 	}
 
-	result := &models.EventWithDetails{
+	return &models.EventWithDetails{
 		Event:        *event,
 		Participants: participants,
 		Waypoints:    waypoints,
-	}
-	s.log.Debug("GetEventByID: завершено", "event_id", eventID, "participants_count", len(participants), "waypoints_count", len(waypoints))
-	return result, nil
+	}, nil
 }
 
-// GetMyEvents получает поездки пользователя (где он является участником)
+// GetMyEvents получает поездки пользователя (где он полноценный участник)
 func (s *EventService) GetMyEvents(ctx context.Context, userID uuid.UUID, status string, page, size int) ([]models.Event, int64, error) {
 	s.log.Debug("GetMyEvents: начало", "user_id", userID, "status", status, "page", page, "size", size)
 
 	offset := (page - 1) * size
-	s.log.Trace("GetMyEvents: параметры запроса", "limit", size, "offset", offset)
-
-	events, total, err := s.eventRepo.ListByUserID(ctx, userID, status, size, offset)
-	if err != nil {
-		s.log.Error("GetMyEvents: ошибка получения поездок", "error", err, "user_id", userID)
-		return nil, 0, err
-	}
-
-	s.log.Debug("GetMyEvents: завершено", "user_id", userID, "count", len(events), "total", total)
-	return events, total, nil
+	return s.eventRepo.ListByUserID(ctx, userID, status, size, offset)
 }
 
 // GetPublicEvents получает публичные завершённые поездки
@@ -294,77 +248,53 @@ func (s *EventService) GetPublicEvents(ctx context.Context, page, size int) ([]m
 	s.log.Debug("GetPublicEvents: начало", "page", page, "size", size)
 
 	offset := (page - 1) * size
-	s.log.Trace("GetPublicEvents: параметры запроса", "limit", size, "offset", offset)
-
-	events, total, err := s.eventRepo.ListPublic(ctx, size, offset)
-	if err != nil {
-		s.log.Error("GetPublicEvents: ошибка получения публичных поездок", "error", err)
-		return nil, 0, err
-	}
-
-	s.log.Debug("GetPublicEvents: завершено", "count", len(events), "total", total)
-	return events, total, nil
+	return s.eventRepo.ListPublic(ctx, size, offset)
 }
 
 // UpdateEvent обновляет поездку
 func (s *EventService) UpdateEvent(ctx context.Context, eventID, userID uuid.UUID, req *models.UpdateEventRequest) (*models.Event, error) {
 	s.log.Debug("UpdateEvent: начало", "event_id", eventID, "user_id", userID)
-	s.log.Trace("UpdateEvent: данные запроса", "title", req.Title, "description", req.Description, "is_public", req.IsPublic, "start_date", req.StartDate)
 
 	// Проверяем права
-	s.log.Trace("UpdateEvent: проверка прав владельца", "event_id", eventID, "user_id", userID)
 	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("UpdateEvent: ошибка проверки владельца", "error", err, "event_id", eventID, "user_id", userID)
 		return nil, err
 	}
 	if !isOwner {
-		s.log.Debug("UpdateEvent: пользователь не владелец", "event_id", eventID, "user_id", userID)
 		return nil, ErrNotOwner
 	}
-	s.log.Trace("UpdateEvent: пользователь владелец", "event_id", eventID, "user_id", userID)
 
 	// Получаем событие
 	event, err := s.eventRepo.GetByID(ctx, eventID)
 	if err != nil {
-		s.log.Error("UpdateEvent: ошибка получения события", "error", err, "event_id", eventID)
 		return nil, err
 	}
 	if event == nil {
-		s.log.Debug("UpdateEvent: событие не найдено", "event_id", eventID)
 		return nil, ErrEventNotFound
 	}
-	s.log.Trace("UpdateEvent: событие получено", "event_id", eventID, "title", event.Title)
 
 	// Обновляем поля
 	if req.Title != nil {
-		s.log.Trace("UpdateEvent: обновление title", "old", event.Title, "new", *req.Title)
 		event.Title = *req.Title
 	}
 	if req.Description != nil {
-		s.log.Trace("UpdateEvent: обновление description", "old", event.Description, "new", *req.Description)
 		event.Description = *req.Description
 	}
 	if req.IsPublic != nil {
-		s.log.Trace("UpdateEvent: обновление is_public", "old", event.IsPublic, "new", *req.IsPublic)
 		event.IsPublic = *req.IsPublic
 	}
 
 	// Если меняется дата начала, нужно пересчитать точки
 	if req.StartDate != nil && !req.StartDate.Equal(event.StartDate) {
-		s.log.Trace("UpdateEvent: обновление start_date", "old", event.StartDate, "new", *req.StartDate)
 		if req.StartDate.Before(time.Now()) {
-			s.log.Debug("UpdateEvent: дата начала в прошлом", "start_date", *req.StartDate)
 			return nil, ErrInvalidStartDate
 		}
 		event.StartDate = *req.StartDate
 
-		// Пересчитываем даты точек
 		waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
 		if err != nil {
-			s.log.Error("UpdateEvent: ошибка получения точек для пересчёта", "error", err, "event_id", eventID)
+			s.log.Error("UpdateEvent: ошибка получения точек для пересчёта", "error", err)
 		} else {
-			s.log.Trace("UpdateEvent: пересчёт дат точек", "event_id", eventID, "waypoints_count", len(waypoints))
 			newWaypoints := s.recalculateWaypointDates(waypoints, event.StartDate)
 			for i, wp := range newWaypoints {
 				if err := s.waypointRepo.Update(ctx, &wp); err != nil {
@@ -374,31 +304,22 @@ func (s *EventService) UpdateEvent(ctx context.Context, eventID, userID uuid.UUI
 				}
 			}
 
-			// Обновляем дату окончания
 			if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
 				event.EndDate = *waypoints[len(waypoints)-1].PlannedEnd
-				s.log.Trace("UpdateEvent: дата окончания обновлена", "end_date", event.EndDate)
 			}
 		}
 	}
 
 	// Сохраняем изменения
-	s.log.Trace("UpdateEvent: сохранение изменений в БД", "event_id", eventID)
 	if err := s.eventRepo.Update(ctx, event); err != nil {
-		s.log.Error("UpdateEvent: ошибка обновления события", "error", err, "event_id", eventID)
 		return nil, err
 	}
 
 	// Публикуем событие
-	s.log.Trace("UpdateEvent: публикация события в Kafka", "event_id", eventID)
 	if err := s.producer.PublishEventUpdated(ctx, eventID, userID, event.Title, event.StartDate, event.EndDate, event.IsPublic); err != nil {
-		s.log.Error("UpdateEvent: ошибка публикации события", "error", err, "event_id", eventID)
-	} else {
-		s.log.Trace("UpdateEvent: событие опубликовано", "event_id", eventID)
+		s.log.Error("UpdateEvent: ошибка публикации события", "error", err)
 	}
 
-	s.log.Info("UpdateEvent: поездка обновлена", "event_id", eventID, "user_id", userID)
-	s.log.Debug("UpdateEvent: завершено", "event_id", eventID, "title", event.Title)
 	return event, nil
 }
 
@@ -407,96 +328,78 @@ func (s *EventService) DeleteEvent(ctx context.Context, eventID, userID uuid.UUI
 	s.log.Debug("DeleteEvent: начало", "event_id", eventID, "user_id", userID)
 
 	// Проверяем права
-	s.log.Trace("DeleteEvent: проверка прав владельца", "event_id", eventID, "user_id", userID)
 	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("DeleteEvent: ошибка проверки владельца", "error", err, "event_id", eventID, "user_id", userID)
 		return err
 	}
 	if !isOwner {
-		s.log.Debug("DeleteEvent: пользователь не владелец", "event_id", eventID, "user_id", userID)
 		return ErrNotOwner
 	}
-	s.log.Trace("DeleteEvent: пользователь владелец", "event_id", eventID, "user_id", userID)
 
 	// Получаем событие
 	event, err := s.eventRepo.GetByID(ctx, eventID)
 	if err != nil {
-		s.log.Error("DeleteEvent: ошибка получения события", "error", err, "event_id", eventID)
 		return err
 	}
 	if event == nil {
-		s.log.Debug("DeleteEvent: событие не найдено", "event_id", eventID)
 		return ErrEventNotFound
 	}
-	s.log.Trace("DeleteEvent: событие получено", "event_id", eventID, "status", event.Status)
 
 	// Обновляем статус
-	s.log.Trace("DeleteEvent: обновление статуса на cancelled", "event_id", eventID)
 	if err := s.eventRepo.UpdateStatus(ctx, eventID, "cancelled"); err != nil {
-		s.log.Error("DeleteEvent: ошибка обновления статуса", "error", err, "event_id", eventID)
 		return err
 	}
 
 	// Публикуем событие
-	s.log.Trace("DeleteEvent: публикация события в Kafka", "event_id", eventID)
 	if err := s.producer.PublishEventCancelled(ctx, eventID, userID); err != nil {
-		s.log.Error("DeleteEvent: ошибка публикации события", "error", err, "event_id", eventID)
-	} else {
-		s.log.Trace("DeleteEvent: событие опубликовано", "event_id", eventID)
+		s.log.Error("DeleteEvent: ошибка публикации события", "error", err)
 	}
 
-	s.log.Info("DeleteEvent: поездка отменена", "event_id", eventID, "user_id", userID)
-	s.log.Debug("DeleteEvent: завершено", "event_id", eventID)
 	return nil
 }
 
-// JoinEvent запрос на участие в поездке
+// JoinEvent запрос на участие в поездке (пользователь подаёт заявку)
 func (s *EventService) JoinEvent(ctx context.Context, eventID, userID uuid.UUID) error {
 	s.log.Debug("JoinEvent: начало", "event_id", eventID, "user_id", userID)
 
 	// Проверяем существование события
-	s.log.Trace("JoinEvent: проверка существования события", "event_id", eventID)
 	exists, err := s.eventRepo.Exists(ctx, eventID)
 	if err != nil {
-		s.log.Error("JoinEvent: ошибка проверки существования", "error", err, "event_id", eventID)
 		return err
 	}
 	if !exists {
-		s.log.Debug("JoinEvent: событие не найдено", "event_id", eventID)
 		return ErrEventNotFound
 	}
 
 	// Проверяем, не участник ли уже
-	s.log.Trace("JoinEvent: проверка участия", "event_id", eventID, "user_id", userID)
 	isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("JoinEvent: ошибка проверки участия", "error", err, "event_id", eventID, "user_id", userID)
 		return err
 	}
 	if isParticipant {
-		s.log.Debug("JoinEvent: пользователь уже участник", "event_id", eventID, "user_id", userID)
 		return ErrAlreadyParticipant
 	}
-	s.log.Trace("JoinEvent: пользователь не является участником", "event_id", eventID, "user_id", userID)
 
-	// Добавляем участника
-	participant := &models.Participant{
-		InviteID: uuid.New(),
-		EventID:  eventID,
-		UserID:   userID,
-		Role:     "member",
-		Status:   "pending",
-	}
-	s.log.Trace("JoinEvent: добавление участника", "event_id", eventID, "user_id", userID)
-	if err := s.participantRepo.Add(ctx, participant); err != nil {
-		s.log.Error("JoinEvent: ошибка добавления участника", "error", err, "event_id", eventID, "user_id", userID)
+	// Проверяем, есть ли уже запись (например, приглашение)
+	existing, err := s.participantRepo.GetByUserAndEvent(ctx, eventID, userID)
+	if err != nil {
 		return err
 	}
+	if existing != nil {
+		// Если уже есть запись, обновляем флаг approved_by_user
+		return s.participantRepo.UpdateApproval(ctx, existing.InviteID, existing.ApprovedByOwner, true)
+	}
 
-	s.log.Info("JoinEvent: запрос на участие создан", "event_id", eventID, "user_id", userID)
-	s.log.Debug("JoinEvent: завершено", "event_id", eventID, "user_id", userID)
-	return nil
+	// Добавляем участника с approved_by_owner = false, approved_by_user = true
+	participant := &models.Participant{
+		InviteID:        uuid.New(),
+		EventID:         eventID,
+		UserID:          userID,
+		Role:            "member",
+		ApprovedByOwner: false,
+		ApprovedByUser:  true,
+	}
+	return s.participantRepo.Add(ctx, participant)
 }
 
 // LeaveEvent выход из поездки
@@ -504,111 +407,200 @@ func (s *EventService) LeaveEvent(ctx context.Context, eventID, userID uuid.UUID
 	s.log.Debug("LeaveEvent: начало", "event_id", eventID, "user_id", userID)
 
 	// Проверяем, не владелец ли
-	s.log.Trace("LeaveEvent: проверка владельца", "event_id", eventID, "user_id", userID)
 	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("LeaveEvent: ошибка проверки владельца", "error", err, "event_id", eventID, "user_id", userID)
 		return err
 	}
 	if isOwner {
-		s.log.Debug("LeaveEvent: владелец не может покинуть поездку", "event_id", eventID, "user_id", userID)
 		return errors.New("owner cannot leave the event")
 	}
-	s.log.Trace("LeaveEvent: пользователь не владелец", "event_id", eventID, "user_id", userID)
 
-	s.log.Trace("LeaveEvent: удаление участника", "event_id", eventID, "user_id", userID)
-	if err := s.participantRepo.Remove(ctx, eventID, userID); err != nil {
-		s.log.Error("LeaveEvent: ошибка удаления участника", "error", err, "event_id", eventID, "user_id", userID)
-		return err
-	}
-
-	s.log.Info("LeaveEvent: пользователь покинул поездку", "event_id", eventID, "user_id", userID)
-	s.log.Debug("LeaveEvent: завершено", "event_id", eventID, "user_id", userID)
-	return nil
+	return s.participantRepo.Remove(ctx, eventID, userID)
 }
 
-// AcceptParticipant принимает участника
+// AcceptParticipant владелец принимает участника (утверждает заявку)
 func (s *EventService) AcceptParticipant(ctx context.Context, eventID, ownerID, participantID uuid.UUID) error {
 	s.log.Debug("AcceptParticipant: начало", "event_id", eventID, "owner_id", ownerID, "participant_id", participantID)
 
 	// Проверяем права
-	s.log.Trace("AcceptParticipant: проверка прав владельца", "event_id", eventID, "owner_id", ownerID)
 	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, ownerID)
 	if err != nil {
-		s.log.Error("AcceptParticipant: ошибка проверки владельца", "error", err, "event_id", eventID, "owner_id", ownerID)
 		return err
 	}
 	if !isOwner {
-		s.log.Debug("AcceptParticipant: пользователь не владелец", "event_id", eventID, "owner_id", ownerID)
 		return ErrNotOwner
 	}
-	s.log.Trace("AcceptParticipant: права подтверждены", "event_id", eventID, "owner_id", ownerID)
 
-	s.log.Trace("AcceptParticipant: обновление статуса участника", "event_id", eventID, "participant_id", participantID)
-	if err := s.participantRepo.UpdateStatus(ctx, eventID, participantID, "accepted"); err != nil {
-		s.log.Error("AcceptParticipant: ошибка обновления статуса", "error", err, "event_id", eventID, "participant_id", participantID)
+	// Получаем участника
+	participant, err := s.participantRepo.GetByUserAndEvent(ctx, eventID, participantID)
+	if err != nil {
 		return err
 	}
+	if participant == nil {
+		return errors.New("participant not found")
+	}
 
-	s.log.Info("AcceptParticipant: участник принят", "event_id", eventID, "participant_id", participantID)
-	s.log.Debug("AcceptParticipant: завершено", "event_id", eventID)
-	return nil
+	// Обновляем approved_by_owner = true
+	return s.participantRepo.UpdateApproval(ctx, participant.InviteID, true, participant.ApprovedByUser)
 }
 
-// DeclineParticipant отклоняет участника
+// DeclineParticipant владелец отклоняет участника
 func (s *EventService) DeclineParticipant(ctx context.Context, eventID, ownerID, participantID uuid.UUID) error {
 	s.log.Debug("DeclineParticipant: начало", "event_id", eventID, "owner_id", ownerID, "participant_id", participantID)
 
 	// Проверяем права
-	s.log.Trace("DeclineParticipant: проверка прав владельца", "event_id", eventID, "owner_id", ownerID)
 	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, ownerID)
 	if err != nil {
-		s.log.Error("DeclineParticipant: ошибка проверки владельца", "error", err, "event_id", eventID, "owner_id", ownerID)
 		return err
 	}
 	if !isOwner {
-		s.log.Debug("DeclineParticipant: пользователь не владелец", "event_id", eventID, "owner_id", ownerID)
 		return ErrNotOwner
 	}
-	s.log.Trace("DeclineParticipant: права подтверждены", "event_id", eventID, "owner_id", ownerID)
 
-	s.log.Trace("DeclineParticipant: обновление статуса участника", "event_id", eventID, "participant_id", participantID)
-	if err := s.participantRepo.UpdateStatus(ctx, eventID, participantID, "declined"); err != nil {
-		s.log.Error("DeclineParticipant: ошибка обновления статуса", "error", err, "event_id", eventID, "participant_id", participantID)
-		return err
-	}
-
-	s.log.Info("DeclineParticipant: участник отклонён", "event_id", eventID, "participant_id", participantID)
-	s.log.Debug("DeclineParticipant: завершено", "event_id", eventID)
-	return nil
+	return s.participantRepo.Remove(ctx, eventID, participantID)
 }
 
 // GetParticipants получает список участников
 func (s *EventService) GetParticipants(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error) {
 	s.log.Debug("GetParticipants: начало", "event_id", eventID)
+	return s.participantRepo.GetByEventID(ctx, eventID)
+}
 
-	participants, err := s.participantRepo.GetByEventID(ctx, eventID)
+// GetInvites получает приглашения пользователя (где approved_by_owner = true, approved_by_user = false)
+func (s *EventService) GetInvites(ctx context.Context, email string) ([]models.Invite, error) {
+	s.log.Debug("GetInvites: начало", "email", email)
+	return s.participantRepo.GetInvitesByEmail(ctx, email)
+}
+
+// AcceptInvite пользователь принимает приглашение
+func (s *EventService) AcceptInvite(ctx context.Context, inviteID, userID uuid.UUID, email string) error {
+	s.log.Debug("AcceptInvite: начало", "invite_id", inviteID, "user_id", userID, "email", email)
+
+	// Получаем приглашение
+	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
 	if err != nil {
-		s.log.Error("GetParticipants: ошибка получения участников", "error", err, "event_id", eventID)
-		return nil, err
+		return err
+	}
+	if participant == nil {
+		return ErrInviteNotFound
 	}
 
-	s.log.Debug("GetParticipants: завершено", "event_id", eventID, "count", len(participants))
-	return participants, nil
+	// Проверяем, что приглашение принадлежит этому email
+	if participant.InvitedEmail != email {
+		return errors.New("invitation does not belong to this user")
+	}
+
+	// Проверяем, что приглашение ещё не обработано
+	if participant.ApprovedByUser {
+		return ErrInviteAlreadyProcessed
+	}
+	if !participant.ApprovedByOwner {
+		return errors.New("invitation not approved by owner")
+	}
+
+	// Обновляем: связываем с пользователем и устанавливаем approved_by_user = true
+	return s.participantRepo.UpdateByInviteID(ctx, inviteID, userID, participant.ApprovedByOwner, true)
+}
+
+// DeclineInvite пользователь отклоняет приглашение
+func (s *EventService) DeclineInvite(ctx context.Context, inviteID, userID uuid.UUID, email string) error {
+	s.log.Debug("DeclineInvite: начало", "invite_id", inviteID, "user_id", userID, "email", email)
+
+	// Получаем приглашение
+	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
+	if err != nil {
+		return err
+	}
+	if participant == nil {
+		return ErrInviteNotFound
+	}
+
+	// Проверяем, что приглашение принадлежит этому email
+	if participant.InvitedEmail != email {
+		return errors.New("invitation does not belong to this user")
+	}
+
+	// Проверяем, что приглашение ещё не обработано
+	if participant.ApprovedByUser {
+		return ErrInviteAlreadyProcessed
+	}
+
+	// Удаляем приглашение
+	return s.participantRepo.RemoveByInviteID(ctx, inviteID)
+}
+
+// InviteParticipants владелец приглашает новых участников после создания поездки
+func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID uuid.UUID, emails []string) error {
+	s.log.Debug("InviteParticipants: начало", "event_id", eventID, "owner_id", ownerID, "emails", emails)
+
+	// Проверяем права
+	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, ownerID)
+	if err != nil {
+		return err
+	}
+	if !isOwner {
+		return ErrNotOwner
+	}
+
+	// Проверяем, что поездка ещё не началась
+	event, err := s.eventRepo.GetByID(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	if event == nil {
+		return ErrEventNotFound
+	}
+	if event.StartDate.Before(time.Now()) {
+		return errors.New("cannot invite to event that has already started")
+	}
+
+	for _, email := range emails {
+		// Проверяем, существует ли пользователь
+		userInfo, err := s.authClient.GetUserByEmail(ctx, email)
+		if err != nil {
+			s.log.Error("InviteParticipants: ошибка проверки пользователя", "error", err, "email", email)
+			continue
+		}
+
+		var participant *models.Participant
+
+		if userInfo != nil {
+			// Пользователь уже зарегистрирован
+			participant = &models.Participant{
+				InviteID:        uuid.New(),
+				EventID:         eventID,
+				UserID:          userInfo.UserID,
+				Role:            "member",
+				ApprovedByOwner: true,
+				ApprovedByUser:  false,
+			}
+		} else {
+			// Пользователь не зарегистрирован
+			participant = &models.Participant{
+				InviteID:        uuid.New(),
+				EventID:         eventID,
+				UserID:          uuid.Nil,
+				Role:            "member",
+				ApprovedByOwner: true,
+				ApprovedByUser:  false,
+				InvitedEmail:    email,
+			}
+		}
+
+		if err := s.participantRepo.Add(ctx, participant); err != nil {
+			s.log.Error("InviteParticipants: ошибка создания", "error", err, "email", email)
+		} else {
+			s.log.Info("InviteParticipants: приглашение создано", "event_id", eventID, "email", email)
+		}
+	}
+
+	return nil
 }
 
 // GetWaypoints получает точки маршрута
 func (s *EventService) GetWaypoints(ctx context.Context, eventID uuid.UUID) ([]models.Waypoint, error) {
 	s.log.Debug("GetWaypoints: начало", "event_id", eventID)
-
-	waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
-	if err != nil {
-		s.log.Error("GetWaypoints: ошибка получения точек", "error", err, "event_id", eventID)
-		return nil, err
-	}
-
-	s.log.Debug("GetWaypoints: завершено", "event_id", eventID, "count", len(waypoints))
-	return waypoints, nil
+	return s.waypointRepo.GetByEventID(ctx, eventID)
 }
 
 // VisitWaypoint отмечает точку посещённой
@@ -616,51 +608,33 @@ func (s *EventService) VisitWaypoint(ctx context.Context, eventID, waypointID, u
 	s.log.Debug("VisitWaypoint: начало", "event_id", eventID, "waypoint_id", waypointID, "user_id", userID)
 
 	// Проверяем, что пользователь участник
-	s.log.Trace("VisitWaypoint: проверка участия", "event_id", eventID, "user_id", userID)
 	isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("VisitWaypoint: ошибка проверки участия", "error", err, "event_id", eventID, "user_id", userID)
 		return err
 	}
 	if !isParticipant {
-		s.log.Debug("VisitWaypoint: пользователь не участник", "event_id", eventID, "user_id", userID)
 		return ErrNotParticipant
 	}
-	s.log.Trace("VisitWaypoint: пользователь участник", "event_id", eventID, "user_id", userID)
 
 	// Получаем точку
-	s.log.Trace("VisitWaypoint: получение точки", "waypoint_id", waypointID)
 	waypoint, err := s.waypointRepo.GetByID(ctx, waypointID)
 	if err != nil {
-		s.log.Error("VisitWaypoint: ошибка получения точки", "error", err, "waypoint_id", waypointID)
 		return err
 	}
 	if waypoint == nil {
-		s.log.Debug("VisitWaypoint: точка не найдена", "waypoint_id", waypointID)
 		return ErrInvalidWaypoint
 	}
-	s.log.Trace("VisitWaypoint: точка получена", "waypoint_id", waypointID, "city", waypoint.City)
 
 	// Обновляем статус
-	actualStart := req.ActualStart
-	actualEnd := req.ActualEnd
-	s.log.Trace("VisitWaypoint: обновление статуса точки", "waypoint_id", waypointID, "actual_start", actualStart, "actual_end", actualEnd)
-
-	if err := s.waypointRepo.UpdateVisit(ctx, waypointID, actualStart, actualEnd); err != nil {
-		s.log.Error("VisitWaypoint: ошибка обновления точки", "error", err, "waypoint_id", waypointID)
+	if err := s.waypointRepo.UpdateVisit(ctx, waypointID, req.ActualStart, req.ActualEnd); err != nil {
 		return err
 	}
 
 	// Публикуем событие
-	s.log.Trace("VisitWaypoint: публикация события в Kafka", "event_id", eventID, "waypoint_id", waypointID)
 	if err := s.producer.PublishWaypointVisited(ctx, eventID, waypointID, userID, waypoint.City); err != nil {
-		s.log.Error("VisitWaypoint: ошибка публикации события", "error", err, "event_id", eventID, "waypoint_id", waypointID)
-	} else {
-		s.log.Trace("VisitWaypoint: событие опубликовано", "event_id", eventID, "waypoint_id", waypointID)
+		s.log.Error("VisitWaypoint: ошибка публикации события", "error", err)
 	}
 
-	s.log.Info("VisitWaypoint: точка отмечена как посещённая", "event_id", eventID, "waypoint_id", waypointID, "user_id", userID)
-	s.log.Debug("VisitWaypoint: завершено", "event_id", eventID, "waypoint_id", waypointID)
 	return nil
 }
 
@@ -669,24 +643,16 @@ func (s *EventService) AddMedia(ctx context.Context, eventID, waypointID, userID
 	s.log.Debug("AddMedia: начало", "event_id", eventID, "waypoint_id", waypointID, "user_id", userID)
 
 	// Проверяем, что пользователь участник
-	s.log.Trace("AddMedia: проверка участия", "event_id", eventID, "user_id", userID)
 	isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("AddMedia: ошибка проверки участия", "error", err, "event_id", eventID, "user_id", userID)
 		return nil, err
 	}
 	if !isParticipant {
-		s.log.Debug("AddMedia: пользователь не участник", "event_id", eventID, "user_id", userID)
 		return nil, ErrNotParticipant
 	}
-	s.log.Trace("AddMedia: пользователь участник", "event_id", eventID, "user_id", userID)
-
-	// Создаём медиа
-	mediaID := uuid.New()
-	s.log.Trace("AddMedia: создание медиа", "media_id", mediaID, "media_type", req.MediaType, "media_url", req.MediaURL)
 
 	media := &models.Media{
-		ID:           mediaID,
+		ID:           uuid.New(),
 		EventID:      eventID,
 		WaypointID:   waypointID,
 		UserID:       userID,
@@ -699,12 +665,9 @@ func (s *EventService) AddMedia(ctx context.Context, eventID, waypointID, userID
 	}
 
 	if err := s.mediaRepo.Create(ctx, media); err != nil {
-		s.log.Error("AddMedia: ошибка создания медиа", "error", err, "media_id", mediaID)
 		return nil, err
 	}
 
-	s.log.Info("AddMedia: медиа добавлено", "event_id", eventID, "waypoint_id", waypointID, "media_id", mediaID)
-	s.log.Debug("AddMedia: завершено", "media_id", mediaID)
 	return media, nil
 }
 
@@ -713,16 +676,7 @@ func (s *EventService) GetMedia(ctx context.Context, waypointID uuid.UUID, page,
 	s.log.Debug("GetMedia: начало", "waypoint_id", waypointID, "page", page, "size", size)
 
 	offset := (page - 1) * size
-	s.log.Trace("GetMedia: параметры запроса", "limit", size, "offset", offset)
-
-	mediaList, total, err := s.mediaRepo.GetByWaypointID(ctx, waypointID, size, offset)
-	if err != nil {
-		s.log.Error("GetMedia: ошибка получения медиа", "error", err, "waypoint_id", waypointID)
-		return nil, 0, err
-	}
-
-	s.log.Debug("GetMedia: завершено", "waypoint_id", waypointID, "count", len(mediaList), "total", total)
-	return mediaList, total, nil
+	return s.mediaRepo.GetByWaypointID(ctx, waypointID, size, offset)
 }
 
 // DeleteMedia удаляет медиа
@@ -730,45 +684,27 @@ func (s *EventService) DeleteMedia(ctx context.Context, mediaID, userID uuid.UUI
 	s.log.Debug("DeleteMedia: начало", "media_id", mediaID, "user_id", userID)
 
 	// Проверяем права
-	s.log.Trace("DeleteMedia: проверка прав автора", "media_id", mediaID, "user_id", userID)
 	isOwner, err := s.mediaRepo.IsOwner(ctx, mediaID, userID)
 	if err != nil {
-		s.log.Error("DeleteMedia: ошибка проверки автора", "error", err, "media_id", mediaID, "user_id", userID)
 		return err
 	}
 	if !isOwner {
-		s.log.Trace("DeleteMedia: пользователь не автор, проверка владельца события", "media_id", mediaID, "user_id", userID)
-		// Проверяем, может быть владелец поездки
 		media, err := s.mediaRepo.GetByID(ctx, mediaID)
 		if err != nil {
-			s.log.Error("DeleteMedia: ошибка получения медиа", "error", err, "media_id", mediaID)
 			return err
 		}
 		if media != nil {
 			isEventOwner, err := s.participantRepo.IsOwner(ctx, media.EventID, userID)
 			if err != nil {
-				s.log.Error("DeleteMedia: ошибка проверки владельца события", "error", err, "event_id", media.EventID)
 				return err
 			}
 			if !isEventOwner {
-				s.log.Debug("DeleteMedia: пользователь не авторизован", "media_id", mediaID, "user_id", userID)
 				return errors.New("not authorized to delete this media")
 			}
-			s.log.Trace("DeleteMedia: пользователь владелец события", "media_id", mediaID, "event_id", media.EventID)
 		}
-	} else {
-		s.log.Trace("DeleteMedia: пользователь автор медиа", "media_id", mediaID, "user_id", userID)
 	}
 
-	s.log.Trace("DeleteMedia: удаление медиа", "media_id", mediaID)
-	if err := s.mediaRepo.Delete(ctx, mediaID); err != nil {
-		s.log.Error("DeleteMedia: ошибка удаления медиа", "error", err, "media_id", mediaID)
-		return err
-	}
-
-	s.log.Info("DeleteMedia: медиа удалено", "media_id", mediaID, "user_id", userID)
-	s.log.Debug("DeleteMedia: завершено", "media_id", mediaID)
-	return nil
+	return s.mediaRepo.Delete(ctx, mediaID)
 }
 
 // AddComment добавляет комментарий
@@ -776,24 +712,16 @@ func (s *EventService) AddComment(ctx context.Context, eventID, waypointID, user
 	s.log.Debug("AddComment: начало", "event_id", eventID, "waypoint_id", waypointID, "user_id", userID)
 
 	// Проверяем, что пользователь участник
-	s.log.Trace("AddComment: проверка участия", "event_id", eventID, "user_id", userID)
 	isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, userID)
 	if err != nil {
-		s.log.Error("AddComment: ошибка проверки участия", "error", err, "event_id", eventID, "user_id", userID)
 		return nil, err
 	}
 	if !isParticipant {
-		s.log.Debug("AddComment: пользователь не участник", "event_id", eventID, "user_id", userID)
 		return nil, ErrNotParticipant
 	}
-	s.log.Trace("AddComment: пользователь участник", "event_id", eventID, "user_id", userID)
-
-	// Создаём комментарий
-	commentID := uuid.New()
-	s.log.Trace("AddComment: создание комментария", "comment_id", commentID)
 
 	comment := &models.Comment{
-		ID:         commentID,
+		ID:         uuid.New(),
 		EventID:    eventID,
 		WaypointID: waypointID,
 		UserID:     userID,
@@ -802,12 +730,9 @@ func (s *EventService) AddComment(ctx context.Context, eventID, waypointID, user
 	}
 
 	if err := s.commentRepo.Create(ctx, comment); err != nil {
-		s.log.Error("AddComment: ошибка создания комментария", "error", err, "comment_id", commentID)
 		return nil, err
 	}
 
-	s.log.Info("AddComment: комментарий добавлен", "event_id", eventID, "waypoint_id", waypointID, "comment_id", commentID)
-	s.log.Debug("AddComment: завершено", "comment_id", commentID)
 	return comment, nil
 }
 
@@ -815,79 +740,47 @@ func (s *EventService) AddComment(ctx context.Context, eventID, waypointID, user
 func (s *EventService) UpdateComment(ctx context.Context, commentID, userID uuid.UUID, text string) error {
 	s.log.Debug("UpdateComment: начало", "comment_id", commentID, "user_id", userID)
 
-	// Проверяем права
-	s.log.Trace("UpdateComment: проверка прав автора", "comment_id", commentID, "user_id", userID)
 	isAuthor, err := s.commentRepo.IsAuthor(ctx, commentID, userID)
 	if err != nil {
-		s.log.Error("UpdateComment: ошибка проверки автора", "error", err, "comment_id", commentID, "user_id", userID)
 		return err
 	}
 	if !isAuthor {
-		s.log.Debug("UpdateComment: пользователь не автор", "comment_id", commentID, "user_id", userID)
 		return errors.New("not authorized to update this comment")
 	}
-	s.log.Trace("UpdateComment: пользователь автор", "comment_id", commentID, "user_id", userID)
 
 	comment := &models.Comment{
 		ID:   commentID,
 		Text: text,
 	}
 
-	s.log.Trace("UpdateComment: обновление комментария", "comment_id", commentID)
-	if err := s.commentRepo.Update(ctx, comment); err != nil {
-		s.log.Error("UpdateComment: ошибка обновления комментария", "error", err, "comment_id", commentID)
-		return err
-	}
-
-	s.log.Info("UpdateComment: комментарий обновлён", "comment_id", commentID, "user_id", userID)
-	s.log.Debug("UpdateComment: завершено", "comment_id", commentID)
-	return nil
+	return s.commentRepo.Update(ctx, comment)
 }
 
 // DeleteComment удаляет комментарий
 func (s *EventService) DeleteComment(ctx context.Context, commentID, userID uuid.UUID) error {
 	s.log.Debug("DeleteComment: начало", "comment_id", commentID, "user_id", userID)
 
-	// Проверяем права
-	s.log.Trace("DeleteComment: проверка прав автора", "comment_id", commentID, "user_id", userID)
 	isAuthor, err := s.commentRepo.IsAuthor(ctx, commentID, userID)
 	if err != nil {
-		s.log.Error("DeleteComment: ошибка проверки автора", "error", err, "comment_id", commentID, "user_id", userID)
 		return err
 	}
 	if !isAuthor {
-		s.log.Trace("DeleteComment: пользователь не автор, проверка владельца события", "comment_id", commentID, "user_id", userID)
-		// Проверяем, может быть владелец поездки
 		comment, err := s.commentRepo.GetByID(ctx, commentID)
 		if err != nil {
-			s.log.Error("DeleteComment: ошибка получения комментария", "error", err, "comment_id", commentID)
 			return err
 		}
 		if comment != nil {
 			isEventOwner, err := s.participantRepo.IsOwner(ctx, comment.EventID, userID)
 			if err != nil {
-				s.log.Error("DeleteComment: ошибка проверки владельца события", "error", err, "event_id", comment.EventID)
 				return err
 			}
 			if !isEventOwner {
-				s.log.Debug("DeleteComment: пользователь не авторизован", "comment_id", commentID, "user_id", userID)
 				return errors.New("not authorized to delete this comment")
 			}
-			s.log.Trace("DeleteComment: пользователь владелец события", "comment_id", commentID, "event_id", comment.EventID)
 		}
-	} else {
-		s.log.Trace("DeleteComment: пользователь автор комментария", "comment_id", commentID, "user_id", userID)
 	}
 
-	s.log.Trace("DeleteComment: удаление комментария", "comment_id", commentID)
-	if err := s.commentRepo.Delete(ctx, commentID); err != nil {
-		s.log.Error("DeleteComment: ошибка удаления комментария", "error", err, "comment_id", commentID)
-		return err
-	}
-
-	s.log.Info("DeleteComment: комментарий удалён", "comment_id", commentID, "user_id", userID)
-	s.log.Debug("DeleteComment: завершено", "comment_id", commentID)
-	return nil
+	return s.commentRepo.Delete(ctx, commentID)
 }
 
 // StartStatusUpdater запускает фоновое обновление статусов поездок
@@ -903,7 +796,6 @@ func (s *EventService) StartStatusUpdater(ctx context.Context, interval time.Dur
 			s.log.Info("StartStatusUpdater: остановка обновления статусов поездок")
 			return
 		case <-ticker.C:
-			s.log.Trace("StartStatusUpdater: выполнение обновления статусов")
 			s.updateEventStatuses(ctx)
 		}
 	}
@@ -912,79 +804,62 @@ func (s *EventService) StartStatusUpdater(ctx context.Context, interval time.Dur
 func (s *EventService) completeEvent(ctx context.Context, eventID uuid.UUID) error {
 	s.log.Trace("completeEvent: начало", "event_id", eventID)
 
-	// Получаем событие
 	event, err := s.eventRepo.GetByID(ctx, eventID)
 	if err != nil {
-		s.log.Error("completeEvent: ошибка получения события", "error", err, "event_id", eventID)
 		return err
 	}
 	if event == nil {
-		s.log.Trace("completeEvent: событие не найдено", "event_id", eventID)
 		return nil
 	}
-	s.log.Trace("completeEvent: событие получено", "event_id", eventID, "status", event.Status)
 
 	// Обновляем статус
-	s.log.Trace("completeEvent: обновление статуса на completed", "event_id", eventID)
 	if err := s.eventRepo.UpdateStatus(ctx, eventID, "completed"); err != nil {
-		s.log.Error("completeEvent: ошибка обновления статуса", "error", err, "event_id", eventID)
 		return err
 	}
 
 	// Получаем участников
 	participants, err := s.participantRepo.GetByEventID(ctx, eventID)
 	if err != nil {
-		s.log.Error("completeEvent: ошибка получения участников", "error", err, "event_id", eventID)
+		s.log.Error("completeEvent: ошибка получения участников", "error", err)
 	}
 
 	participantIDs := make([]uuid.UUID, 0, len(participants))
 	for _, p := range participants {
-		if p.Status == "accepted" {
+		if p.IsActive() {
 			participantIDs = append(participantIDs, p.UserID)
 		}
 	}
-	s.log.Trace("completeEvent: участники для уведомления", "event_id", eventID, "count", len(participantIDs))
 
 	// MVP0: получаем страну из маршрута
-	// Для MVP1: собирать уникальные страны из посещённых точек
 	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, event.RouteID.String())
 	if err != nil {
-		s.log.Error("completeEvent: ошибка получения маршрута для определения страны", "error", err, "route_id", event.RouteID)
+		s.log.Error("completeEvent: ошибка получения маршрута", "error", err)
 	}
 
 	var countries []string
 	if routeData != nil && routeData.Country != "" {
 		countries = []string{routeData.Country}
-		s.log.Trace("completeEvent: страна определена из маршрута", "event_id", eventID, "country", routeData.Country)
 	} else {
-		s.log.Warn("completeEvent: не удалось определить страну маршрута", "event_id", eventID, "route_id", event.RouteID)
 		countries = []string{}
 	}
 
 	// Публикуем событие
-	s.log.Trace("completeEvent: публикация события в Kafka", "event_id", eventID)
 	if err := s.producer.PublishEventCompleted(ctx, eventID, event.RouteID, event.OwnerID, participantIDs, countries); err != nil {
-		s.log.Error("completeEvent: ошибка публикации события", "error", err, "event_id", eventID)
-	} else {
-		s.log.Trace("completeEvent: событие опубликовано", "event_id", eventID, "countries", countries)
+		s.log.Error("completeEvent: ошибка публикации события", "error", err)
 	}
 
 	s.log.Info("completeEvent: поездка завершена", "event_id", eventID)
-	s.log.Debug("completeEvent: завершено", "event_id", eventID)
 	return nil
 }
 
 // calculateWaypointDates рассчитывает даты для точек маршрута
 func (s *EventService) calculateWaypointDates(waypoints []models.RouteWaypoint, startDate time.Time, eventID uuid.UUID) []models.Waypoint {
-	s.log.Trace("calculateWaypointDates: начало", "waypoints_count", len(waypoints), "start_date", startDate, "event_id", eventID)
-
 	result := make([]models.Waypoint, 0, len(waypoints))
 	currentDate := startDate
 
-	for i, wp := range waypoints {
+	for _, wp := range waypoints {
 		plannedStart := currentDate
 		plannedEnd := currentDate.Add(time.Duration(wp.DurationDays*24+wp.DurationHours) * time.Hour)
-		s.log.Trace("calculateWaypointDates: точка рассчитана", "index", i, "city", wp.City, "planned_start", plannedStart, "planned_end", plannedEnd)
 
 		result = append(result, models.Waypoint{
 			ID:              uuid.New(),
@@ -1004,21 +879,17 @@ func (s *EventService) calculateWaypointDates(waypoints []models.RouteWaypoint, 
 		currentDate = plannedEnd
 	}
 
-	s.log.Trace("calculateWaypointDates: завершено", "result_count", len(result))
 	return result
 }
 
 // recalculateWaypointDates пересчитывает даты для существующих точек
 func (s *EventService) recalculateWaypointDates(waypoints []models.Waypoint, startDate time.Time) []models.Waypoint {
-	s.log.Trace("recalculateWaypointDates: начало", "waypoints_count", len(waypoints), "new_start_date", startDate)
-
 	result := make([]models.Waypoint, len(waypoints))
 	currentDate := startDate
 
 	for i, wp := range waypoints {
 		durationDays := wp.PlannedEnd.Sub(*wp.PlannedStart).Hours() / 24
 		durationHours := int(wp.PlannedEnd.Sub(*wp.PlannedStart).Hours()) % 24
-		s.log.Trace("recalculateWaypointDates: точка", "index", i, "city", wp.City, "duration_days", durationDays, "duration_hours", durationHours)
 
 		plannedStart := currentDate
 		plannedEnd := currentDate.Add(time.Duration(int(durationDays)*24+durationHours) * time.Hour)
@@ -1030,28 +901,20 @@ func (s *EventService) recalculateWaypointDates(waypoints []models.Waypoint, sta
 		currentDate = plannedEnd
 	}
 
-	s.log.Trace("recalculateWaypointDates: завершено", "new_end_date", currentDate)
 	return result
 }
 
 // activateEvents активирует planned поездки, у которых start_date <= now()
 func (s *EventService) activateEvents(ctx context.Context) error {
-	now := time.Now()
-	s.log.Trace("activateEvents: начало", "now", now)
-
-	plannedEvents, err := s.eventRepo.GetPlannedEventsForActivation(ctx, now)
+	plannedEvents, err := s.eventRepo.GetPlannedEventsForActivation(ctx, time.Now())
 	if err != nil {
-		s.log.Error("activateEvents: ошибка получения planned событий", "error", err)
 		return err
 	}
-	s.log.Trace("activateEvents: найдено planned событий", "count", len(plannedEvents))
 
 	for _, eventID := range plannedEvents {
-		s.log.Trace("activateEvents: активация события", "event_id", eventID)
+		s.log.Debug("Активация поездки", "event_id", eventID)
 		if err := s.eventRepo.UpdateStatus(ctx, eventID, "active"); err != nil {
-			s.log.Error("activateEvents: ошибка активации", "error", err, "event_id", eventID)
-		} else {
-			s.log.Trace("activateEvents: событие активировано", "event_id", eventID)
+			s.log.Error("Ошибка активации поездки", "error", err, "event_id", eventID)
 		}
 	}
 
@@ -1061,31 +924,28 @@ func (s *EventService) activateEvents(ctx context.Context) error {
 // updateEventStatuses обновляет статусы поездок (активация и завершение)
 func (s *EventService) updateEventStatuses(ctx context.Context) {
 	now := time.Now()
-	s.log.Trace("updateEventStatuses: начало", "now", now)
 
 	// 1. Активируем planned поездки
-	s.log.Trace("updateEventStatuses: этап 1 - активация planned поездок")
 	if err := s.activateEvents(ctx); err != nil {
-		s.log.Error("updateEventStatuses: ошибка активации поездок", "error", err)
+		s.log.Error("Ошибка активации поездок", "error", err)
 	}
 
 	// 2. Завершаем active поездки, у которых end_date < now()
-	s.log.Trace("updateEventStatuses: этап 2 - завершение active поездок")
 	activeEvents, err := s.eventRepo.GetActiveEvents(ctx, now)
 	if err != nil {
-		s.log.Error("updateEventStatuses: ошибка получения активных поездок", "error", err)
+		s.log.Error("Ошибка получения активных поездок", "error", err)
 		return
 	}
-	s.log.Trace("updateEventStatuses: найдено active поездок для завершения", "count", len(activeEvents))
 
 	for _, eventID := range activeEvents {
-		s.log.Trace("updateEventStatuses: завершение события", "event_id", eventID)
+		s.log.Debug("Завершение поездки", "event_id", eventID)
 		if err := s.completeEvent(ctx, eventID); err != nil {
-			s.log.Error("updateEventStatuses: ошибка завершения поездки", "error", err, "event_id", eventID)
-		} else {
-			s.log.Trace("updateEventStatuses: событие завершено", "event_id", eventID)
+			s.log.Error("Ошибка завершения поездки", "error", err, "event_id", eventID)
 		}
 	}
+}
 
-	s.log.Trace("updateEventStatuses: завершено")
+// GetUserEmail получает email пользователя из Auth Service
+func (s *EventService) GetUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
+	return s.authClient.GetUserEmail(ctx, userID)
 }

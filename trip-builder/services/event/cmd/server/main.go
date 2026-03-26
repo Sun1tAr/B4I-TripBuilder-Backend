@@ -141,6 +141,13 @@ func main() {
 	protected.HandleFunc("/comments/{commentId}", eventHandler.UpdateComment).Methods("PUT")
 	protected.HandleFunc("/comments/{commentId}", eventHandler.DeleteComment).Methods("DELETE")
 	protected.HandleFunc("/media/{mediaId}", eventHandler.DeleteMedia).Methods("DELETE")
+
+	// Приглашения
+	protected.HandleFunc("/invites", eventHandler.GetInvites).Methods("GET")
+	protected.HandleFunc("/invites/{invite_id}/accept", eventHandler.AcceptInvite).Methods("POST")
+	protected.HandleFunc("/invites/{invite_id}/decline", eventHandler.DeclineInvite).Methods("POST")
+	protected.HandleFunc("/{id}/invite", eventHandler.InviteParticipants).Methods("POST")
+
 	protected.HandleFunc("/{id}/join", eventHandler.JoinEvent).Methods("POST")
 	protected.HandleFunc("/{id}/leave", eventHandler.LeaveEvent).Methods("DELETE")
 	protected.HandleFunc("/{id}/accept/{userId}", eventHandler.AcceptParticipant).Methods("POST")

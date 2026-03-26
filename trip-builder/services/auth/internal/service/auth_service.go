@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/config"
@@ -367,4 +368,16 @@ func (s *AuthService) parseResetToken(tokenString string) (uuid.UUID, error) {
 // GetUserByEmail получает пользователя по email
 func (s *AuthService) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	return s.userRepo.GetByEmail(ctx, email)
+}
+
+// GetUserEmail получает email пользователя по ID
+func (s *AuthService) GetUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if user == nil {
+		return "", fmt.Errorf("user not found")
+	}
+	return user.Email, nil
 }

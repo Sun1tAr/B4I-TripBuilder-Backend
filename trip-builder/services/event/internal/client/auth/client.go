@@ -63,3 +63,33 @@ func (c *Client) GetUserByEmail(ctx context.Context, email string) (*UserInfo, e
 
 	return &result, nil
 }
+
+// GetUserEmail получает email пользователя по user_id
+func (c *Client) GetUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/auth/internal/users/%s/email", c.baseURL, userID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.log.Error("AuthClient.GetUserEmail: неожиданный статус", "status", resp.StatusCode, "user_id", userID)
+		return "", fmt.Errorf("auth service returned %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	return result.Email, nil
+}

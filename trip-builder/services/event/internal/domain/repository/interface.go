@@ -11,6 +11,7 @@ import (
 type EventRepository interface {
 	// Создание
 	Create(ctx context.Context, event *models.Event) error
+	CreateWithWaypoints(ctx context.Context, event *models.Event, waypoints []models.Waypoint) error
 
 	// Получение
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Event, error)
@@ -34,8 +35,6 @@ type EventRepository interface {
 	// Вспомогательные
 	GetActiveEvents(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
 	GetPlannedEventsForActivation(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
-
-	CreateWithWaypoints(ctx context.Context, event *models.Event, waypoints []models.Waypoint) error
 }
 
 type ParticipantRepository interface {
@@ -46,12 +45,16 @@ type ParticipantRepository interface {
 	// Получение
 	GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error)
 	GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error)
+	GetByInviteID(ctx context.Context, inviteID uuid.UUID) (*models.Participant, error)
+	GetInvitesByEmail(ctx context.Context, email string) ([]models.Invite, error)
 
 	// Обновление
-	UpdateStatus(ctx context.Context, eventID, userID uuid.UUID, status string) error
+	UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser bool) error
+	UpdateByInviteID(ctx context.Context, inviteID, userID uuid.UUID, approveByOwner, approveByUser bool) error
 
 	// Удаление
 	Remove(ctx context.Context, eventID, userID uuid.UUID) error
+	RemoveByInviteID(ctx context.Context, inviteID uuid.UUID) error
 
 	// Проверки
 	IsParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
@@ -61,14 +64,13 @@ type ParticipantRepository interface {
 	// Для приглашений
 	FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error)
 	LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error
-
-	// LinkAllInvitationsByEmail связывает все приглашения с указанным email с пользователем
 	LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error
 }
 
 type WaypointRepository interface {
 	// Создание
 	Create(ctx context.Context, waypoint *models.Waypoint) error
+	CreateBatch(ctx context.Context, waypoints []models.Waypoint) error
 
 	// Получение
 	GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Waypoint, error)

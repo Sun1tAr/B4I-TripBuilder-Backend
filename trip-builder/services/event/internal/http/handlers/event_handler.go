@@ -58,6 +58,14 @@ func (h *EventHandler) getUserIDFromContext(r *http.Request) *uuid.UUID {
 	return &userID
 }
 
+func (h *EventHandler) getUserEmailFromContext(r *http.Request) string {
+	email, ok := r.Context().Value("user_email").(string)
+	if !ok || email == "" {
+		return ""
+	}
+	return email
+}
+
 // eventToResponse преобразует модель события в DTO ответа
 func eventToResponse(event *models.Event) *eventdto.EventResponse {
 	return &eventdto.EventResponse{
@@ -86,11 +94,12 @@ func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetail
 
 	for i, p := range event.Participants {
 		resp.Participants[i] = eventdto.ParticipantResponse{
-			UserID:       p.UserID,
-			Role:         p.Role,
-			Status:       p.Status,
-			InvitedEmail: p.InvitedEmail,
-			JoinedAt:     p.JoinedAt,
+			UserID:          p.UserID,
+			Role:            p.Role,
+			ApprovedByOwner: p.ApprovedByOwner,
+			ApprovedByUser:  p.ApprovedByUser,
+			InvitedEmail:    p.InvitedEmail,
+			JoinedAt:        p.JoinedAt,
 		}
 	}
 
@@ -113,7 +122,7 @@ func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetail
 	return resp
 }
 
-// GetMyEvents возвращает поездки текущего пользователя
+// GetMyEvents возвращает поездки текущего пользователя (только подтверждённые)
 func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	log.Debug("GetMyEvents: запрос поездок пользователя")
@@ -124,19 +133,17 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Парсим параметры пагинации (опционально)
 	pageStr := r.URL.Query().Get("page")
 	sizeStr := r.URL.Query().Get("size")
+	status := r.URL.Query().Get("status")
 
 	var page, size int
 	var err error
 
-	// Если параметры не указаны, возвращаем все записи
+	// Если параметры пагинации не указаны — возвращаем все записи
 	if pageStr == "" && sizeStr == "" {
-		// Устанавливаем очень большой лимит (например, 10000)
-		// или можно использовать 0, но в репозитории нужно обработать
 		page = 1
-		size = 10000
+		size = 10000 // достаточно большое число для "всех записей"
 		log.Debug("GetMyEvents: пагинация не указана, возвращаем все записи")
 	} else {
 		page, err = strconv.Atoi(pageStr)
@@ -152,8 +159,6 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 			size = 100
 		}
 	}
-
-	status := r.URL.Query().Get("status")
 
 	events, total, err := h.eventService.GetMyEvents(r.Context(), *userID, status, page, size)
 	if err != nil {
@@ -185,29 +190,13 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	log.Debug("GetPublicEvents: запрос публичных поездок")
 
-	pageStr := r.URL.Query().Get("page")
-	sizeStr := r.URL.Query().Get("size")
-
-	var page, size int
-	var err error
-
-	if pageStr == "" && sizeStr == "" {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
 		page = 1
-		size = 10000
-		log.Debug("GetPublicEvents: пагинация не указана, возвращаем все записи")
-	} else {
-		page, err = strconv.Atoi(pageStr)
-		if err != nil || page < 1 {
-			page = 1
-		}
-
-		size, err = strconv.Atoi(sizeStr)
-		if err != nil || size < 1 {
-			size = 10
-		}
-		if size > 100 {
-			size = 100
-		}
+	}
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size < 1 || size > 100 {
+		size = 10
 	}
 
 	events, total, err := h.eventService.GetPublicEvents(r.Context(), page, size)
@@ -398,7 +387,7 @@ func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "event cancelled successfully"})
 }
 
-// JoinEvent запрос на участие в поездке
+// JoinEvent запрос на участие в поездке (пользователь подаёт заявку)
 func (h *EventHandler) JoinEvent(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	vars := mux.Vars(r)
@@ -472,7 +461,7 @@ func (h *EventHandler) LeaveEvent(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "left event successfully"})
 }
 
-// AcceptParticipant принимает участника
+// AcceptParticipant принимает участника (владелец утверждает заявку)
 func (h *EventHandler) AcceptParticipant(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	vars := mux.Vars(r)
@@ -516,7 +505,7 @@ func (h *EventHandler) AcceptParticipant(w http.ResponseWriter, r *http.Request)
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "participant accepted"})
 }
 
-// DeclineParticipant отклоняет участника
+// DeclineParticipant отклоняет участника (владелец отклоняет заявку)
 func (h *EventHandler) DeclineParticipant(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	vars := mux.Vars(r)
@@ -583,15 +572,177 @@ func (h *EventHandler) GetParticipants(w http.ResponseWriter, r *http.Request) {
 	response := make([]eventdto.ParticipantResponse, len(participants))
 	for i, p := range participants {
 		response[i] = eventdto.ParticipantResponse{
-			UserID:       p.UserID,
-			Role:         p.Role,
-			Status:       p.Status,
-			InvitedEmail: p.InvitedEmail,
-			JoinedAt:     p.JoinedAt,
+			UserID:          p.UserID,
+			Role:            p.Role,
+			ApprovedByOwner: p.ApprovedByOwner,
+			ApprovedByUser:  p.ApprovedByUser,
+			InvitedEmail:    p.InvitedEmail,
+			JoinedAt:        p.JoinedAt,
 		}
 	}
 
 	h.writeJSON(w, http.StatusOK, response)
+}
+
+// GetInvites возвращает список приглашений текущего пользователя
+func (h *EventHandler) GetInvites(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	log.Debug("GetInvites: запрос приглашений")
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	// Получаем email пользователя из Auth Service
+	email, err := h.eventService.GetUserEmail(r.Context(), *userID)
+	if err != nil {
+		log.Error("GetInvites: ошибка получения email", "error", err, "user_id", userID)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	invites, err := h.eventService.GetInvites(r.Context(), email)
+	if err != nil {
+		log.Error("Ошибка получения приглашений", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, invites)
+}
+
+// AcceptInvite принимает приглашение
+func (h *EventHandler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	inviteIDStr := vars["invite_id"]
+
+	inviteID, err := uuid.Parse(inviteIDStr)
+	if err != nil {
+		log.Debug("AcceptInvite: неверный ID приглашения", "invite_id", inviteIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid invite id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	// Получаем email пользователя
+	email, err := h.eventService.GetUserEmail(r.Context(), *userID)
+	if err != nil {
+		log.Error("AcceptInvite: ошибка получения email", "error", err, "user_id", userID)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	if err := h.eventService.AcceptInvite(r.Context(), inviteID, *userID, email); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInviteNotFound):
+			h.writeError(w, http.StatusNotFound, "invitation not found", "")
+		case errors.Is(err, service.ErrInviteAlreadyProcessed):
+			h.writeError(w, http.StatusConflict, "invitation already processed", "")
+		default:
+			log.Error("Ошибка принятия приглашения", "error", err, "invite_id", inviteID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "invitation accepted successfully"})
+}
+
+// DeclineInvite отклоняет приглашение
+func (h *EventHandler) DeclineInvite(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	inviteIDStr := vars["invite_id"]
+
+	inviteID, err := uuid.Parse(inviteIDStr)
+	if err != nil {
+		log.Debug("DeclineInvite: неверный ID приглашения", "invite_id", inviteIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid invite id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	email, err := h.eventService.GetUserEmail(r.Context(), *userID)
+	if err != nil {
+		log.Error("DeclineInvite: ошибка получения email", "error", err, "user_id", userID)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	if err := h.eventService.DeclineInvite(r.Context(), inviteID, *userID, email); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInviteNotFound):
+			h.writeError(w, http.StatusNotFound, "invitation not found", "")
+		case errors.Is(err, service.ErrInviteAlreadyProcessed):
+			h.writeError(w, http.StatusConflict, "invitation already processed", "")
+		default:
+			log.Error("Ошибка отклонения приглашения", "error", err, "invite_id", inviteID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "invitation declined successfully"})
+}
+
+// InviteParticipants владелец приглашает новых участников
+func (h *EventHandler) InviteParticipants(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	eventIDStr := vars["id"]
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		log.Debug("InviteParticipants: неверный ID события", "event_id", eventIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	var req eventdto.InviteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debug("InviteParticipants: ошибка декодирования", "error", err)
+		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+
+	if len(req.Emails) == 0 {
+		h.writeError(w, http.StatusBadRequest, "emails list is required", "")
+		return
+	}
+
+	if err := h.eventService.InviteParticipants(r.Context(), eventID, *userID, req.Emails); err != nil {
+		switch {
+		case errors.Is(err, service.ErrEventNotFound):
+			h.writeError(w, http.StatusNotFound, "event not found", "")
+		case errors.Is(err, service.ErrNotOwner):
+			h.writeError(w, http.StatusForbidden, "you are not the owner of this event", "")
+		default:
+			log.Error("Ошибка приглашения участников", "error", err, "event_id", eventID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "invitations sent successfully"})
 }
 
 // GetWaypoints возвращает точки маршрута

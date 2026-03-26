@@ -84,7 +84,7 @@ func (r *EventRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) 
 	return r.GetByID(ctx, id)
 }
 
-// ListByUserID возвращает поездки, в которых пользователь является участником
+// ListByUserID возвращает поездки, где пользователь является полноценным участником (оба флага true)
 func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, status string, limit, offset int) ([]models.Event, int64, error) {
 	participantsTable := fmt.Sprintf("%s.event_participants", r.schema)
 
@@ -98,16 +98,18 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 		argPos++
 	}
 
-	// Получаем данные
+	// Условие: участник полностью подтверждён (approved_by_owner = true AND approved_by_user = true)
 	query := fmt.Sprintf(`
-        SELECT e.id, e.route_id, e.title, e.description, e.owner_id, e.start_date, e.end_date,
-               e.is_group, e.status, e.is_public, e.created_at, e.updated_at
-        FROM %s e
-        JOIN %s p ON e.id = p.event_id
-        WHERE p.user_id = $1%s
-        ORDER BY e.start_date DESC
-        LIMIT $%d OFFSET $%d
-    `, r.table(), participantsTable, statusFilter, argPos, argPos+1)
+		SELECT e.id, e.route_id, e.title, e.description, e.owner_id, e.start_date, e.end_date,
+		       e.is_group, e.status, e.is_public, e.created_at, e.updated_at
+		FROM %s e
+		JOIN %s p ON e.id = p.event_id
+		WHERE p.user_id = $1 
+		  AND p.approved_by_owner = true 
+		  AND p.approved_by_user = true%s
+		ORDER BY e.start_date DESC
+		LIMIT $%d OFFSET $%d
+	`, r.table(), participantsTable, statusFilter, argPos, argPos+1)
 
 	args = append(args, limit, offset)
 
@@ -141,11 +143,13 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 
 	// Получаем общее количество
 	countQuery := fmt.Sprintf(`
-        SELECT COUNT(*)
-        FROM %s e
-        JOIN %s p ON e.id = p.event_id
-        WHERE p.user_id = $1%s
-    `, r.table(), participantsTable, statusFilter)
+		SELECT COUNT(*)
+		FROM %s e
+		JOIN %s p ON e.id = p.event_id
+		WHERE p.user_id = $1 
+		  AND p.approved_by_owner = true 
+		  AND p.approved_by_user = true%s
+	`, r.table(), participantsTable, statusFilter)
 
 	countArgs := []interface{}{userID}
 	if status != "" {
