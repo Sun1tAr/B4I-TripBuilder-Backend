@@ -46,26 +46,20 @@ type ParticipantRepository interface {
 	GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error)
 	GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error)
 	GetByInviteID(ctx context.Context, inviteID uuid.UUID) (*models.Participant, error)
-	GetInvitesByEmail(ctx context.Context, email string) ([]models.Invite, error)
+
+	// Получение приглашений (approved_by_owner = true, approved_by_user = false)
 	GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error)
 
 	// Обновление
-	UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser bool) error
-	UpdateByInviteID(ctx context.Context, inviteID, userID uuid.UUID, approveByOwner, approveByUser bool) error
+	UpdateApproval(ctx context.Context, eventID, userID uuid.UUID, approveByOwner bool, approveByUser bool) error
 
 	// Удаление
 	Remove(ctx context.Context, eventID, userID uuid.UUID) error
-	RemoveByInviteID(ctx context.Context, inviteID uuid.UUID) error
 
 	// Проверки
 	IsParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 	IsOwner(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 	CountByEventID(ctx context.Context, eventID uuid.UUID) (int, error)
-
-	// Для приглашений
-	FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error)
-	LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error
-	LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error
 }
 
 type WaypointRepository interface {

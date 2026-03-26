@@ -744,7 +744,7 @@ func (h *EventHandler) GetInvites(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// AcceptInvite принимает приглашение
+// AcceptInvite принимает приглашение по invite_id
 func (h *EventHandler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	vars := mux.Vars(r)
@@ -763,19 +763,15 @@ func (h *EventHandler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Получаем email пользователя
-	email, err := h.eventService.GetUserEmail(r.Context(), *userID)
-	if err != nil {
-		log.Error("AcceptInvite: ошибка получения email", "error", err, "user_id", userID)
-		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		return
-	}
+	log.Debug("AcceptInvite: принятие приглашения", "invite_id", inviteID, "user_id", userID)
 
-	if err := h.eventService.AcceptInvite(r.Context(), inviteID, *userID, email); err != nil {
+	if err := h.eventService.AcceptInvite(r.Context(), inviteID, *userID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInviteNotFound):
+			log.Debug("AcceptInvite: приглашение не найдено", "invite_id", inviteID)
 			h.writeError(w, http.StatusNotFound, "invitation not found", "")
 		case errors.Is(err, service.ErrInviteAlreadyProcessed):
+			log.Debug("AcceptInvite: приглашение уже обработано", "invite_id", inviteID)
 			h.writeError(w, http.StatusConflict, "invitation already processed", "")
 		default:
 			log.Error("Ошибка принятия приглашения", "error", err, "invite_id", inviteID)
@@ -784,10 +780,11 @@ func (h *EventHandler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info("AcceptInvite: приглашение принято", "invite_id", inviteID, "user_id", userID)
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "invitation accepted successfully"})
 }
 
-// DeclineInvite отклоняет приглашение
+// DeclineInvite отклоняет приглашение по invite_id
 func (h *EventHandler) DeclineInvite(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	vars := mux.Vars(r)
@@ -806,18 +803,15 @@ func (h *EventHandler) DeclineInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email, err := h.eventService.GetUserEmail(r.Context(), *userID)
-	if err != nil {
-		log.Error("DeclineInvite: ошибка получения email", "error", err, "user_id", userID)
-		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		return
-	}
+	log.Debug("DeclineInvite: отклонение приглашения", "invite_id", inviteID, "user_id", userID)
 
-	if err := h.eventService.DeclineInvite(r.Context(), inviteID, *userID, email); err != nil {
+	if err := h.eventService.DeclineInvite(r.Context(), inviteID, *userID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInviteNotFound):
+			log.Debug("DeclineInvite: приглашение не найдено", "invite_id", inviteID)
 			h.writeError(w, http.StatusNotFound, "invitation not found", "")
 		case errors.Is(err, service.ErrInviteAlreadyProcessed):
+			log.Debug("DeclineInvite: приглашение уже обработано", "invite_id", inviteID)
 			h.writeError(w, http.StatusConflict, "invitation already processed", "")
 		default:
 			log.Error("Ошибка отклонения приглашения", "error", err, "invite_id", inviteID)
@@ -826,6 +820,7 @@ func (h *EventHandler) DeclineInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info("DeclineInvite: приглашение отклонено", "invite_id", inviteID, "user_id", userID)
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "invitation declined successfully"})
 }
 

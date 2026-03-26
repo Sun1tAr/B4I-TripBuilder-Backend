@@ -190,115 +190,23 @@ func (r *ParticipantRepository) GetByInviteID(ctx context.Context, inviteID uuid
 	return p, nil
 }
 
-// GetInvitesByEmail возвращает приглашения пользователя по email (где approved_by_owner = true, approved_by_user = false)
-func (r *ParticipantRepository) GetInvitesByEmail(ctx context.Context, email string) ([]models.Invite, error) {
-	query := fmt.Sprintf(`
-		SELECT 
-			p.invite_id,
-			e.id as event_id,
-			e.title as event_title,
-			e.description as event_description,
-			e.start_date as event_start_date,
-			e.end_date as event_end_date,
-			e.owner_id as event_owner_id,
-			COALESCE((
-				SELECT COUNT(*) 
-				FROM %s p2 
-				WHERE p2.event_id = e.id 
-				  AND p2.approved_by_owner = true 
-				  AND p2.approved_by_user = true
-			), 0) as participants_count,
-			p.user_id as invited_by,
-			p.joined_at as invited_at
-		FROM %s p
-		JOIN %s e ON p.event_id = e.id
-		WHERE p.invited_email = $1 
-		  AND p.approved_by_owner = true 
-		  AND p.approved_by_user = false
-		ORDER BY p.joined_at DESC
-	`, r.table(), r.table(), r.eventsTable())
-
-	rows, err := r.db.QueryContext(ctx, query, email)
-	if err != nil {
-		r.log.Error("ParticipantRepository.GetInvitesByEmail: ошибка запроса", "error", err, "email", email)
-		return nil, err
-	}
-	defer rows.Close()
-
-	var invites []models.Invite
-	for rows.Next() {
-		var invite models.Invite
-		var description sql.NullString
-		var invitedBy sql.NullString
-
-		err := rows.Scan(
-			&invite.InviteID,
-			&invite.EventID,
-			&invite.EventTitle,
-			&description,
-			&invite.EventStartDate,
-			&invite.EventEndDate,
-			&invite.EventOwnerID,
-			&invite.ParticipantsCount,
-			&invitedBy,
-			&invite.InvitedAt,
-		)
-		if err != nil {
-			r.log.Error("ParticipantRepository.GetInvitesByEmail: ошибка сканирования", "error", err)
-			return nil, err
-		}
-
-		if description.Valid {
-			invite.EventDescription = description.String
-		}
-		if invitedBy.Valid {
-			invite.InvitedBy, _ = uuid.Parse(invitedBy.String)
-		}
-
-		invites = append(invites, invite)
-	}
-
-	r.log.Debug("ParticipantRepository.GetInvitesByEmail: получены приглашения", "email", email, "count", len(invites))
-	return invites, nil
-}
-
-// UpdateApproval обновляет флаги подтверждения по invite_id
-func (r *ParticipantRepository) UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser bool) error {
+// UpdateApproval обновляет флаги подтверждения по event_id и user_id
+func (r *ParticipantRepository) UpdateApproval(ctx context.Context, eventID, userID uuid.UUID, approveByOwner, approveByUser bool) error {
 	query := fmt.Sprintf(`
 		UPDATE %s SET approved_by_owner = $1, approved_by_user = $2
-		WHERE invite_id = $3
+		WHERE event_id = $3 AND user_id = $4
 	`, r.table())
 
-	result, err := r.db.ExecContext(ctx, query, approveByOwner, approveByUser, inviteID)
+	result, err := r.db.ExecContext(ctx, query, approveByOwner, approveByUser, eventID, userID)
 	if err != nil {
 		r.log.Error("ParticipantRepository.UpdateApproval: ошибка обновления",
-			"error", err, "invite_id", inviteID)
+			"error", err, "event_id", eventID, "user_id", userID)
 		return err
 	}
 
 	rows, _ := result.RowsAffected()
 	r.log.Debug("ParticipantRepository.UpdateApproval: обновлено",
-		"invite_id", inviteID, "rows", rows)
-	return nil
-}
-
-// UpdateByInviteID обновляет user_id и флаги подтверждения по invite_id
-func (r *ParticipantRepository) UpdateByInviteID(ctx context.Context, inviteID, userID uuid.UUID, approveByOwner, approveByUser bool) error {
-	query := fmt.Sprintf(`
-		UPDATE %s SET user_id = $1, approved_by_owner = $2, approved_by_user = $3, invited_email = NULL
-		WHERE invite_id = $4
-	`, r.table())
-
-	result, err := r.db.ExecContext(ctx, query, userID, approveByOwner, approveByUser, inviteID)
-	if err != nil {
-		r.log.Error("ParticipantRepository.UpdateByInviteID: ошибка обновления",
-			"error", err, "invite_id", inviteID, "user_id", userID)
-		return err
-	}
-
-	rows, _ := result.RowsAffected()
-	r.log.Debug("ParticipantRepository.UpdateByInviteID: обновлено",
-		"invite_id", inviteID, "user_id", userID, "rows", rows)
+		"event_id", eventID, "user_id", userID, "rows", rows)
 	return nil
 }
 
@@ -313,20 +221,6 @@ func (r *ParticipantRepository) Remove(ctx context.Context, eventID, userID uuid
 
 	rows, _ := result.RowsAffected()
 	r.log.Debug("ParticipantRepository.Remove: участник удалён", "event_id", eventID, "user_id", userID, "rows", rows)
-	return nil
-}
-
-// RemoveByInviteID удаляет участника по invite_id
-func (r *ParticipantRepository) RemoveByInviteID(ctx context.Context, inviteID uuid.UUID) error {
-	query := fmt.Sprintf("DELETE FROM %s WHERE invite_id = $1", r.table())
-	result, err := r.db.ExecContext(ctx, query, inviteID)
-	if err != nil {
-		r.log.Error("ParticipantRepository.RemoveByInviteID: ошибка удаления", "error", err, "invite_id", inviteID)
-		return err
-	}
-
-	rows, _ := result.RowsAffected()
-	r.log.Debug("ParticipantRepository.RemoveByInviteID: приглашение удалено", "invite_id", inviteID, "rows", rows)
 	return nil
 }
 
@@ -379,92 +273,7 @@ func (r *ParticipantRepository) CountByEventID(ctx context.Context, eventID uuid
 	return count, nil
 }
 
-// FindByInvitedEmail находит приглашение по email
-func (r *ParticipantRepository) FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error) {
-	query := fmt.Sprintf(`
-		SELECT invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at
-		FROM %s WHERE event_id = $1 AND invited_email = $2
-	`, r.table())
-
-	p := &models.Participant{}
-	var invitedEmail sql.NullString
-	var userID sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, eventID, email).Scan(
-		&p.InviteID, &p.EventID, &userID, &p.Role,
-		&p.ApprovedByOwner, &p.ApprovedByUser, &invitedEmail, &p.JoinedAt,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		r.log.Error("ParticipantRepository.FindByInvitedEmail: ошибка", "error", err, "event_id", eventID, "email", email)
-		return nil, err
-	}
-
-	if userID.Valid {
-		p.UserID, _ = uuid.Parse(userID.String)
-	}
-	if invitedEmail.Valid {
-		p.InvitedEmail = invitedEmail.String
-	}
-
-	return p, nil
-}
-
-// LinkInvitedParticipant связывает приглашение с пользователем по invite_id
-func (r *ParticipantRepository) LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error {
-	// Ищем приглашение по event_id и invited_email
-	participant, err := r.FindByInvitedEmail(ctx, eventID, email)
-	if err != nil {
-		return err
-	}
-	if participant == nil {
-		// Нет приглашения, создаём нового участника
-		newParticipant := &models.Participant{
-			EventID:         eventID,
-			UserID:          userID,
-			Role:            "member",
-			ApprovedByOwner: false,
-			ApprovedByUser:  true, // пользователь сам хочет присоединиться
-		}
-		return r.Add(ctx, newParticipant)
-	}
-
-	// Обновляем существующее приглашение
-	return r.UpdateByInviteID(ctx, participant.InviteID, userID, participant.ApprovedByOwner, true)
-}
-
-// LinkAllInvitationsByEmail связывает все приглашения с указанным email с пользователем
-func (r *ParticipantRepository) LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error {
-	// Находим все приглашения с этим email, где approved_by_owner = true, approved_by_user = false
-	query := fmt.Sprintf(`
-		UPDATE %s SET user_id = $1, approved_by_user = true, invited_email = NULL
-		WHERE invited_email = $2 
-		  AND approved_by_owner = true 
-		  AND approved_by_user = false
-	`, r.table())
-
-	result, err := r.db.ExecContext(ctx, query, userID, email)
-	if err != nil {
-		r.log.Error("ParticipantRepository.LinkAllInvitationsByEmail: ошибка обновления",
-			"error", err, "user_id", userID, "email", email)
-		return err
-	}
-
-	rows, _ := result.RowsAffected()
-	if rows > 0 {
-		r.log.Info("ParticipantRepository.LinkAllInvitationsByEmail: приглашения связаны",
-			"user_id", userID, "email", email, "count", rows)
-	} else {
-		r.log.Debug("ParticipantRepository.LinkAllInvitationsByEmail: приглашения не найдены",
-			"user_id", userID, "email", email)
-	}
-
-	return nil
-}
-
-// GetInvitesByUserID возвращает приглашения зарегистрированного пользователя
+// GetInvitesByUserID возвращает приглашения пользователя (approved_by_owner = true, approved_by_user = false)
 func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
 	r.log.Debug("GetInvitesByUserID: поиск приглашений", "user_id", userID)
 
@@ -484,7 +293,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 				  AND p2.approved_by_owner = true 
 				  AND p2.approved_by_user = true
 			), 0) as participants_count,
-			p.user_id as invited_by,
+			$1 as invited_by,
 			p.joined_at as invited_at
 		FROM %s p
 		JOIN %s e ON p.event_id = e.id
@@ -505,7 +314,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 	for rows.Next() {
 		var invite models.Invite
 		var description sql.NullString
-		var invitedBy sql.NullString
+		var invitedBy uuid.UUID
 
 		err := rows.Scan(
 			&invite.InviteID,
@@ -527,9 +336,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 		if description.Valid {
 			invite.EventDescription = description.String
 		}
-		if invitedBy.Valid {
-			invite.InvitedBy, _ = uuid.Parse(invitedBy.String)
-		}
+		invite.InvitedBy = invitedBy
 
 		invites = append(invites, invite)
 	}

@@ -386,8 +386,8 @@ func (s *EventService) JoinEvent(ctx context.Context, eventID, userID uuid.UUID)
 		return err
 	}
 	if existing != nil {
-		// Если уже есть запись, обновляем флаг approved_by_user
-		return s.participantRepo.UpdateApproval(ctx, existing.InviteID, existing.ApprovedByOwner, true)
+		// Если уже есть запись, обновляем флаг approved_by_user = true
+		return s.participantRepo.UpdateApproval(ctx, eventID, userID, existing.ApprovedByOwner, true)
 	}
 
 	// Добавляем участника с approved_by_owner = false, approved_by_user = true
@@ -472,11 +472,11 @@ func (s *EventService) GetInvites(ctx context.Context, email string) ([]models.I
 	return s.participantRepo.GetInvitesByEmail(ctx, email)
 }
 
-// AcceptInvite пользователь принимает приглашение
-func (s *EventService) AcceptInvite(ctx context.Context, inviteID, userID uuid.UUID, email string) error {
-	s.log.Debug("AcceptInvite: начало", "invite_id", inviteID, "user_id", userID, "email", email)
+// AcceptInvite пользователь принимает приглашение по invite_id
+func (s *EventService) AcceptInvite(ctx context.Context, inviteID, userID uuid.UUID) error {
+	s.log.Debug("AcceptInvite: начало", "invite_id", inviteID, "user_id", userID)
 
-	// Получаем приглашение
+	// Получаем приглашение по invite_id
 	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
 	if err != nil {
 		return err
@@ -485,28 +485,34 @@ func (s *EventService) AcceptInvite(ctx context.Context, inviteID, userID uuid.U
 		return ErrInviteNotFound
 	}
 
-	// Проверяем, что приглашение принадлежит этому email
-	if participant.InvitedEmail != email {
-		return errors.New("invitation does not belong to this user")
+	// Проверяем, что приглашение предназначено этому пользователю
+	if participant.UserID != userID {
+		s.log.Warn("AcceptInvite: приглашение не принадлежит пользователю",
+			"invite_id", inviteID,
+			"expected_user", participant.UserID,
+			"actual_user", userID)
+		return ErrInviteNotFound
 	}
 
-	// Проверяем, что приглашение ещё не обработано
-	if participant.ApprovedByUser {
-		return ErrInviteAlreadyProcessed
-	}
+	// Проверяем, что владелец подтвердил
 	if !participant.ApprovedByOwner {
 		return errors.New("invitation not approved by owner")
 	}
 
-	// Обновляем: связываем с пользователем и устанавливаем approved_by_user = true
-	return s.participantRepo.UpdateByInviteID(ctx, inviteID, userID, participant.ApprovedByOwner, true)
+	// Проверяем, что пользователь еще не подтвердил
+	if participant.ApprovedByUser {
+		return ErrInviteAlreadyProcessed
+	}
+
+	// Обновляем approved_by_user = true
+	return s.participantRepo.UpdateApproval(ctx, participant.EventID, userID, participant.ApprovedByOwner, true)
 }
 
-// DeclineInvite пользователь отклоняет приглашение
-func (s *EventService) DeclineInvite(ctx context.Context, inviteID, userID uuid.UUID, email string) error {
-	s.log.Debug("DeclineInvite: начало", "invite_id", inviteID, "user_id", userID, "email", email)
+// DeclineInvite пользователь отклоняет приглашение по invite_id
+func (s *EventService) DeclineInvite(ctx context.Context, inviteID, userID uuid.UUID) error {
+	s.log.Debug("DeclineInvite: начало", "invite_id", inviteID, "user_id", userID)
 
-	// Получаем приглашение
+	// Получаем приглашение по invite_id
 	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
 	if err != nil {
 		return err
@@ -515,18 +521,22 @@ func (s *EventService) DeclineInvite(ctx context.Context, inviteID, userID uuid.
 		return ErrInviteNotFound
 	}
 
-	// Проверяем, что приглашение принадлежит этому email
-	if participant.InvitedEmail != email {
-		return errors.New("invitation does not belong to this user")
+	// Проверяем, что приглашение предназначено этому пользователю
+	if participant.UserID != userID {
+		s.log.Warn("DeclineInvite: приглашение не принадлежит пользователю",
+			"invite_id", inviteID,
+			"expected_user", participant.UserID,
+			"actual_user", userID)
+		return ErrInviteNotFound
 	}
 
-	// Проверяем, что приглашение ещё не обработано
+	// Проверяем, что пользователь еще не подтвердил
 	if participant.ApprovedByUser {
 		return ErrInviteAlreadyProcessed
 	}
 
-	// Удаляем приглашение
-	return s.participantRepo.RemoveByInviteID(ctx, inviteID)
+	// Удаляем запись
+	return s.participantRepo.Remove(ctx, participant.EventID, userID)
 }
 
 // InviteParticipants владелец приглашает новых участников после создания поездки
@@ -950,7 +960,7 @@ func (s *EventService) GetUserEmail(ctx context.Context, userID uuid.UUID) (stri
 	return s.authClient.GetUserEmail(ctx, userID)
 }
 
-// GetInvitesByUserID получает приглашения по user_id (для зарегистрированных)
+// GetInvitesByUserID получает приглашения пользователя (approved_by_owner = true, approved_by_user = false)
 func (s *EventService) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
 	s.log.Debug("GetInvitesByUserID: начало", "user_id", userID)
 	return s.participantRepo.GetInvitesByUserID(ctx, userID)
