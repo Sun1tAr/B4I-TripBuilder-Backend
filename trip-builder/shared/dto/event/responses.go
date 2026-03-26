@@ -8,18 +8,26 @@ import (
 
 // EventResponse DTO для поездки
 type EventResponse struct {
-	ID          uuid.UUID  `json:"id"`
-	RouteID     uuid.UUID  `json:"route_id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	OwnerID     uuid.UUID  `json:"owner_id"`
-	StartDate   time.Time  `json:"start_date"`
-	EndDate     time.Time  `json:"end_date"`
-	IsGroup     bool       `json:"is_group"`
-	Status      string     `json:"status"`
-	IsPublic    bool       `json:"is_public"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+	ID                uuid.UUID  `json:"id"`
+	RouteID           uuid.UUID  `json:"route_id"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description,omitempty"`
+	OwnerID           uuid.UUID  `json:"owner_id"`
+	StartDate         time.Time  `json:"start_date"`
+	EndDate           time.Time  `json:"end_date"`
+	IsGroup           bool       `json:"is_group"`
+	Status            string     `json:"status"`
+	IsPublic          bool       `json:"is_public"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	TotalInvites      int        `json:"total_invites"`      // все приглашения (!(approved_by_owner = true & approved_by_user = true))
+	TotalParticipants int        `json:"total_participants"` // активные участники (approved_by_owner = true, approved_by_user = true)
+}
+
+// EventParticipantsStatsDTO статистика участников события
+type EventParticipantsStatsDTO struct {
+	TotalInvites      int `json:"total_invites"`
+	TotalParticipants int `json:"total_participants"`
 }
 
 // EventDetailResponse DTO для детальной информации о поездке

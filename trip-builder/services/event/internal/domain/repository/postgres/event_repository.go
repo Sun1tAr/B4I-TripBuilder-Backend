@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
 )
@@ -393,4 +395,52 @@ func (r *EventRepository) CreateWithWaypoints(ctx context.Context, event *models
 
 	r.log.Debug("EventRepository.CreateWithWaypoints: событие и точки созданы", "event_id", event.ID, "waypoints_count", len(waypoints))
 	return nil
+}
+
+// GetParticipantsStats возвращает статистику участников для списка событий
+func (r *EventRepository) GetParticipantsStats(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]repository.EventParticipantsStats, error) {
+	if len(eventIDs) == 0 {
+		return make(map[uuid.UUID]repository.EventParticipantsStats), nil
+	}
+
+	participantsTable := fmt.Sprintf("%s.event_participants", r.schema)
+
+	// Строим плейсхолдеры для IN запроса
+	placeholders := make([]string, len(eventIDs))
+	args := make([]interface{}, len(eventIDs))
+	for i, id := range eventIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	// Запрос: для каждого события считаем количество приглашений и участников
+	query := fmt.Sprintf(`
+		SELECT 
+			event_id,
+			COUNT(*) FILTER (WHERE approved_by_owner = true AND approved_by_user IS NULL) as total_invites,
+			COUNT(*) FILTER (WHERE approved_by_owner = true AND approved_by_user = true) as total_participants
+		FROM %s
+		WHERE event_id IN (%s)
+		GROUP BY event_id
+	`, participantsTable, strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		r.log.Error("EventRepository.GetParticipantsStats: ошибка запроса", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]repository.EventParticipantsStats)
+	for rows.Next() {
+		var eventID uuid.UUID
+		var stats repository.EventParticipantsStats
+		if err := rows.Scan(&eventID, &stats.TotalInvites, &stats.TotalParticipants); err != nil {
+			r.log.Error("EventRepository.GetParticipantsStats: ошибка сканирования", "error", err)
+			return nil, err
+		}
+		result[eventID] = stats
+	}
+
+	return result, nil
 }

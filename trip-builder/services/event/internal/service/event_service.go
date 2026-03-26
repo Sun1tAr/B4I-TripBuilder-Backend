@@ -11,6 +11,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/kafka"
+	eventdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
 )
@@ -993,4 +994,30 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 func (s *EventService) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
 	s.log.Debug("GetInvitesByUserID: начало", "user_id", userID)
 	return s.participantRepo.GetInvitesByUserID(ctx, userID)
+}
+
+// EventParticipantsStats статистика участников события
+type EventParticipantsStats struct {
+	TotalInvites      int
+	TotalParticipants int
+}
+
+// GetParticipantsStats возвращает статистику участников для списка событий
+func (s *EventService) GetParticipantsStats(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]eventdto.EventParticipantsStatsDTO, error) {
+	s.log.Debug("GetParticipantsStats: начало", "count", len(eventIDs))
+
+	stats, err := s.eventRepo.GetParticipantsStats(ctx, eventIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[uuid.UUID]eventdto.EventParticipantsStatsDTO, len(stats))
+	for id, stat := range stats {
+		result[id] = eventdto.EventParticipantsStatsDTO{
+			TotalInvites:      stat.TotalInvites,
+			TotalParticipants: stat.TotalParticipants,
+		}
+	}
+
+	return result, nil
 }

@@ -35,6 +35,9 @@ type EventRepository interface {
 	// Вспомогательные
 	GetActiveEvents(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
 	GetPlannedEventsForActivation(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
+
+	// GetParticipantsStats возвращает статистику участников для списка событий
+	GetParticipantsStats(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventParticipantsStats, error)
 }
 
 type ParticipantRepository interface {
@@ -120,4 +123,10 @@ type CommentRepository interface {
 
 	// Проверки
 	IsAuthor(ctx context.Context, commentID, userID uuid.UUID) (bool, error)
+}
+
+// EventParticipantsStats статистика участников события
+type EventParticipantsStats struct {
+	TotalInvites      int
+	TotalParticipants int
 }
