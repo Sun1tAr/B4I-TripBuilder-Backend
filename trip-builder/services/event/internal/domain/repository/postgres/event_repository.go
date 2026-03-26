@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
 )
@@ -84,25 +86,32 @@ func (r *EventRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) 
 	return r.GetByID(ctx, id)
 }
 
+// ListByUserID возвращает поездки, где пользователь является полноценным участником (оба флага true)
 func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, status string, limit, offset int) ([]models.Event, int64, error) {
+	participantsTable := fmt.Sprintf("%s.event_participants", r.schema)
+
 	args := []interface{}{userID}
 	argPos := 2
 	statusFilter := ""
 
 	if status != "" {
-		statusFilter = fmt.Sprintf(" AND status = $%d", argPos)
+		statusFilter = fmt.Sprintf(" AND e.status = $%d", argPos)
 		args = append(args, status)
 		argPos++
 	}
 
+	// Условие: участник полностью подтверждён (approved_by_owner = true AND approved_by_user = true)
 	query := fmt.Sprintf(`
-		SELECT id, route_id, title, description, owner_id, start_date, end_date,
-		       is_group, status, is_public, created_at, updated_at
-		FROM %s
-		WHERE owner_id = $1%s
-		ORDER BY start_date DESC
+		SELECT e.id, e.route_id, e.title, e.description, e.owner_id, e.start_date, e.end_date,
+		       e.is_group, e.status, e.is_public, e.created_at, e.updated_at
+		FROM %s e
+		JOIN %s p ON e.id = p.event_id
+		WHERE p.user_id = $1 
+		  AND p.approved_by_owner = true 
+		  AND p.approved_by_user = true%s
+		ORDER BY e.start_date DESC
 		LIMIT $%d OFFSET $%d
-	`, r.table(), statusFilter, argPos, argPos+1)
+	`, r.table(), participantsTable, statusFilter, argPos, argPos+1)
 
 	args = append(args, limit, offset)
 
@@ -134,17 +143,23 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 		events = append(events, event)
 	}
 
+	// Получаем общее количество
 	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE owner_id = $1%s
-	`, r.table(), statusFilter)
+		SELECT COUNT(*)
+		FROM %s e
+		JOIN %s p ON e.id = p.event_id
+		WHERE p.user_id = $1 
+		  AND p.approved_by_owner = true 
+		  AND p.approved_by_user = true%s
+	`, r.table(), participantsTable, statusFilter)
 
-	argsCount := []interface{}{userID}
+	countArgs := []interface{}{userID}
 	if status != "" {
-		argsCount = append(argsCount, status)
+		countArgs = append(countArgs, status)
 	}
 
 	var total int64
-	err = r.db.QueryRowContext(ctx, countQuery, argsCount...).Scan(&total)
+	err = r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total)
 	if err != nil {
 		r.log.Error("EventRepository.ListByUserID: ошибка подсчёта", "error", err)
 		return nil, 0, err
@@ -380,4 +395,52 @@ func (r *EventRepository) CreateWithWaypoints(ctx context.Context, event *models
 
 	r.log.Debug("EventRepository.CreateWithWaypoints: событие и точки созданы", "event_id", event.ID, "waypoints_count", len(waypoints))
 	return nil
+}
+
+// GetParticipantsStats возвращает статистику участников для списка событий
+func (r *EventRepository) GetParticipantsStats(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]repository.EventParticipantsStats, error) {
+	if len(eventIDs) == 0 {
+		return make(map[uuid.UUID]repository.EventParticipantsStats), nil
+	}
+
+	participantsTable := fmt.Sprintf("%s.event_participants", r.schema)
+
+	// Строим плейсхолдеры для IN запроса
+	placeholders := make([]string, len(eventIDs))
+	args := make([]interface{}, len(eventIDs))
+	for i, id := range eventIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	// Запрос: для каждого события считаем количество приглашений и участников
+	query := fmt.Sprintf(`
+		SELECT 
+			event_id,
+			COUNT(*) FILTER (WHERE approved_by_owner = true AND approved_by_user IS NULL) as total_invites,
+			COUNT(*) FILTER (WHERE approved_by_owner = true AND approved_by_user = true) as total_participants
+		FROM %s
+		WHERE event_id IN (%s)
+		GROUP BY event_id
+	`, participantsTable, strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		r.log.Error("EventRepository.GetParticipantsStats: ошибка запроса", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]repository.EventParticipantsStats)
+	for rows.Next() {
+		var eventID uuid.UUID
+		var stats repository.EventParticipantsStats
+		if err := rows.Scan(&eventID, &stats.TotalInvites, &stats.TotalParticipants); err != nil {
+			r.log.Error("EventRepository.GetParticipantsStats: ошибка сканирования", "error", err)
+			return nil, err
+		}
+		result[eventID] = stats
+	}
+
+	return result, nil
 }

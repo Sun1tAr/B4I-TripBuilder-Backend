@@ -86,6 +86,11 @@ func main() {
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("DELETE")
 
 	// Events - защищённые (POST, PUT, DELETE, управление участниками)
+	protected.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
+	protected.HandleFunc("/events/invites", handlers.Proxy(cfg, "event")).Methods("GET")
+	protected.HandleFunc("/events/invites/{invite_id}/accept", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/invites/{invite_id}/decline", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/{id}/invite", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
 	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("DELETE")

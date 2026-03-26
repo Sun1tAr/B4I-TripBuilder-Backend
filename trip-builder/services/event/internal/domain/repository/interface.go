@@ -11,6 +11,7 @@ import (
 type EventRepository interface {
 	// Создание
 	Create(ctx context.Context, event *models.Event) error
+	CreateWithWaypoints(ctx context.Context, event *models.Event, waypoints []models.Waypoint) error
 
 	// Получение
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Event, error)
@@ -35,7 +36,8 @@ type EventRepository interface {
 	GetActiveEvents(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
 	GetPlannedEventsForActivation(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
 
-	CreateWithWaypoints(ctx context.Context, event *models.Event, waypoints []models.Waypoint) error
+	// GetParticipantsStats возвращает статистику участников для списка событий
+	GetParticipantsStats(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventParticipantsStats, error)
 }
 
 type ParticipantRepository interface {
@@ -46,9 +48,13 @@ type ParticipantRepository interface {
 	// Получение
 	GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error)
 	GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error)
+	GetByInviteID(ctx context.Context, inviteID uuid.UUID) (*models.Participant, error)
+
+	// Получение приглашений (approved_by_owner = true AND approved_by_user IS NULL)
+	GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error)
 
 	// Обновление
-	UpdateStatus(ctx context.Context, eventID, userID uuid.UUID, status string) error
+	UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser *bool) error
 
 	// Удаление
 	Remove(ctx context.Context, eventID, userID uuid.UUID) error
@@ -58,17 +64,15 @@ type ParticipantRepository interface {
 	IsOwner(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 	CountByEventID(ctx context.Context, eventID uuid.UUID) (int, error)
 
-	// Для приглашений
-	FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error)
-	LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error
-
-	// LinkAllInvitationsByEmail связывает все приглашения с указанным email с пользователем
-	LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error
+	// Для связывания незарегистрированных пользователей
+	LinkInvitation(ctx context.Context, inviteID uuid.UUID, userID uuid.UUID) error
+	FindByInvitedEmail(ctx context.Context, email string) ([]models.Participant, error)
 }
 
 type WaypointRepository interface {
 	// Создание
 	Create(ctx context.Context, waypoint *models.Waypoint) error
+	CreateBatch(ctx context.Context, waypoints []models.Waypoint) error
 
 	// Получение
 	GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Waypoint, error)
@@ -119,4 +123,10 @@ type CommentRepository interface {
 
 	// Проверки
 	IsAuthor(ctx context.Context, commentID, userID uuid.UUID) (bool, error)
+}
+
+// EventParticipantsStats статистика участников события
+type EventParticipantsStats struct {
+	TotalInvites      int
+	TotalParticipants int
 }

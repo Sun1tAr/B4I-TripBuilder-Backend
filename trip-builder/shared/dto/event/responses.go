@@ -8,18 +8,26 @@ import (
 
 // EventResponse DTO для поездки
 type EventResponse struct {
-	ID          uuid.UUID  `json:"id"`
-	RouteID     uuid.UUID  `json:"route_id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	OwnerID     uuid.UUID  `json:"owner_id"`
-	StartDate   time.Time  `json:"start_date"`
-	EndDate     time.Time  `json:"end_date"`
-	IsGroup     bool       `json:"is_group"`
-	Status      string     `json:"status"`
-	IsPublic    bool       `json:"is_public"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+	ID                uuid.UUID  `json:"id"`
+	RouteID           uuid.UUID  `json:"route_id"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description,omitempty"`
+	OwnerID           uuid.UUID  `json:"owner_id"`
+	StartDate         time.Time  `json:"start_date"`
+	EndDate           time.Time  `json:"end_date"`
+	IsGroup           bool       `json:"is_group"`
+	Status            string     `json:"status"`
+	IsPublic          bool       `json:"is_public"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	TotalInvites      int        `json:"total_invites"`      // все приглашения (!(approved_by_owner = true & approved_by_user = true))
+	TotalParticipants int        `json:"total_participants"` // активные участники (approved_by_owner = true, approved_by_user = true)
+}
+
+// EventParticipantsStatsDTO статистика участников события
+type EventParticipantsStatsDTO struct {
+	TotalInvites      int `json:"total_invites"`
+	TotalParticipants int `json:"total_participants"`
 }
 
 // EventDetailResponse DTO для детальной информации о поездке
@@ -31,11 +39,12 @@ type EventDetailResponse struct {
 
 // ParticipantResponse DTO для участника
 type ParticipantResponse struct {
-	UserID       uuid.UUID `json:"user_id"`
-	Role         string    `json:"role"`
-	Status       string    `json:"status"`
-	InvitedEmail string    `json:"invited_email,omitempty"`
-	JoinedAt     time.Time `json:"joined_at"`
+	UserID          uuid.UUID `json:"user_id"`
+	Role            string    `json:"role"`
+	ApprovedByOwner bool      `json:"approved_by_owner"`
+	ApprovedByUser  *bool     `json:"approved_by_user"` // null = приглашение, true/false = принято/отклонено
+	InvitedEmail    string    `json:"invited_email,omitempty"`
+	JoinedAt        time.Time `json:"joined_at"`
 }
 
 // ParticipantWithUserResponse DTO для участника с данными профиля
@@ -95,4 +104,18 @@ type ListEventsResponse struct {
 	Page       int             `json:"page"`
 	Size       int             `json:"size"`
 	TotalPages int             `json:"total_pages"`
+}
+
+// InviteResponse DTO для приглашения пользователя
+type InviteResponse struct {
+	InviteID          uuid.UUID `json:"invite_id"`
+	EventID           uuid.UUID `json:"event_id"`
+	EventTitle        string    `json:"event_title"`
+	EventDescription  string    `json:"event_description,omitempty"`
+	EventStartDate    time.Time `json:"event_start_date"`
+	EventEndDate      time.Time `json:"event_end_date"`
+	EventOwnerID      uuid.UUID `json:"event_owner_id"`
+	ParticipantsCount int       `json:"participants_count"`
+	UserID            uuid.UUID `json:"user_id"`
+	InvitedAt         time.Time `json:"invited_at"`
 }

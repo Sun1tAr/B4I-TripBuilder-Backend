@@ -7,22 +7,35 @@ import (
 )
 
 type Participant struct {
-	InviteID     uuid.UUID `json:"invite_id"`
-	EventID      uuid.UUID `json:"event_id"`
-	UserID       uuid.UUID `json:"user_id"`
-	Role         string    `json:"role"`
-	Status       string    `json:"status"`
-	InvitedEmail string    `json:"invited_email,omitempty"`
-	JoinedAt     time.Time `json:"joined_at"`
+	InviteID        uuid.UUID `json:"invite_id"`
+	EventID         uuid.UUID `json:"event_id"`
+	UserID          uuid.UUID `json:"user_id"`
+	Role            string    `json:"role"` // owner, member
+	ApprovedByOwner bool      `json:"approved_by_owner"`
+	ApprovedByUser  *bool     `json:"approved_by_user"` // null = приглашение, true = принято, false = отклонено
+	InvitedEmail    string    `json:"invited_email,omitempty"`
+	JoinedAt        time.Time `json:"joined_at"`
 }
 
-type ParticipantWithUser struct {
-	Participant
-	FirstName string `json:"first_name,omitempty"`
-	LastName  string `json:"last_name,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"`
+// IsActive возвращает true, если участник полностью подтверждён
+func (p *Participant) IsActive() bool {
+	return p.ApprovedByOwner && p.ApprovedByUser != nil && *p.ApprovedByUser
 }
 
-type InviteRequest struct {
-	Emails []string `json:"emails" validate:"required"`
+// IsInvite возвращает true, если это приглашение (ожидает подтверждения)
+func (p *Participant) IsInvite() bool {
+	return p.ApprovedByOwner && p.ApprovedByUser == nil
+}
+
+type Invite struct {
+	InviteID          uuid.UUID `json:"invite_id"`
+	EventID           uuid.UUID `json:"event_id"`
+	EventTitle        string    `json:"event_title"`
+	EventDescription  string    `json:"event_description,omitempty"`
+	EventStartDate    time.Time `json:"event_start_date"`
+	EventEndDate      time.Time `json:"event_end_date"`
+	EventOwnerID      uuid.UUID `json:"event_owner_id"`
+	ParticipantsCount int       `json:"participants_count"`
+	UserID            uuid.UUID `json:"user_id"`
+	InvitedAt         time.Time `json:"invited_at"`
 }

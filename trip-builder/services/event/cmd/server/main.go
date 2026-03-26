@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/auth"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/route"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/consumer"
@@ -76,8 +77,9 @@ func main() {
 	mediaRepo := postgres.NewMediaRepository(db, cfg.Database.Schema, log)
 	commentRepo := postgres.NewCommentRepository(db, cfg.Database.Schema, log)
 
-	// Инициализация HTTP-клиента к Route Service
+	// Инициализация HTTP-клиентов
 	routeClient := route.NewClient(cfg.RouteServiceURL, cfg.HTTPClientTimeout, log)
+	authClient := auth.NewClient(cfg.AuthServiceURL, cfg.HTTPClientTimeout, log)
 
 	// Инициализация Kafka продюсера
 	eventProducer := kafka.NewEventProducer(cfg.Kafka.Brokers, log)
@@ -90,12 +92,16 @@ func main() {
 		mediaRepo,
 		commentRepo,
 		routeClient,
+		authClient,
 		eventProducer,
 		log,
 	)
 
 	// Запуск фонового воркера для обновления статусов поездок
 	go eventService.StartStatusUpdater(context.Background(), cfg.StatusUpdateInterval)
+
+	// Инициализация хендлеров
+	eventHandler := handlers.NewEventHandler(eventService, log)
 
 	// Запуск Kafka consumer для user.created
 	if len(cfg.Kafka.Brokers) > 0 {
@@ -110,9 +116,6 @@ func main() {
 		log.Info("Запущен consumer для топика user.created")
 	}
 
-	// Инициализация хендлеров
-	eventHandler := handlers.NewEventHandler(eventService, log)
-
 	// Роутер
 	r := mux.NewRouter()
 
@@ -122,12 +125,13 @@ func main() {
 
 	// API роутер с префиксом /api/v1/events
 	api := r.PathPrefix("/api/v1/events").Subrouter()
+	api.Use(middleware.Auth(log))
 
-	// ========== ПУБЛИЧНЫЕ МАРШРУТЫ (регистрируем первыми) ==========
+	// Публичные маршруты (регистрируем первыми)
 	public := api.PathPrefix("").Subrouter()
 	public.HandleFunc("/public", eventHandler.GetPublicEvents).Methods("GET")
 
-	// ========== ЗАЩИЩЁННЫЕ МАРШРУТЫ ==========
+	// Защищённые маршруты
 	protected := api.PathPrefix("").Subrouter()
 	protected.Use(middleware.Auth(log))
 
@@ -137,6 +141,13 @@ func main() {
 	protected.HandleFunc("/comments/{commentId}", eventHandler.UpdateComment).Methods("PUT")
 	protected.HandleFunc("/comments/{commentId}", eventHandler.DeleteComment).Methods("DELETE")
 	protected.HandleFunc("/media/{mediaId}", eventHandler.DeleteMedia).Methods("DELETE")
+
+	// Приглашения
+	protected.HandleFunc("/invites", eventHandler.GetInvites).Methods("GET")
+	protected.HandleFunc("/invites/{invite_id}/accept", eventHandler.AcceptInvite).Methods("POST")
+	protected.HandleFunc("/invites/{invite_id}/decline", eventHandler.DeclineInvite).Methods("POST")
+	protected.HandleFunc("/{id}/invite", eventHandler.InviteParticipants).Methods("POST")
+
 	protected.HandleFunc("/{id}/join", eventHandler.JoinEvent).Methods("POST")
 	protected.HandleFunc("/{id}/leave", eventHandler.LeaveEvent).Methods("DELETE")
 	protected.HandleFunc("/{id}/accept/{userId}", eventHandler.AcceptParticipant).Methods("POST")
@@ -148,7 +159,7 @@ func main() {
 	protected.HandleFunc("/{id}/waypoints/{waypointId}/media", eventHandler.GetMedia).Methods("GET")
 	protected.HandleFunc("/{id}/waypoints/{waypointId}/comments", eventHandler.AddComment).Methods("POST")
 
-	// ОБЩИЕ маршруты (с параметром) — САМЫЕ ПОСЛЕДНИЕ
+	// Общие маршруты (с параметром) — САМЫЕ ПОСЛЕДНИЕ
 	protected.HandleFunc("/{id}", eventHandler.GetEventByID).Methods("GET")
 	protected.HandleFunc("/{id}", eventHandler.UpdateEvent).Methods("PUT")
 	protected.HandleFunc("/{id}", eventHandler.DeleteEvent).Methods("DELETE")

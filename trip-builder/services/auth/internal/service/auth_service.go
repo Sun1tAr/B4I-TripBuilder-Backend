@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/config"
@@ -17,13 +18,13 @@ import (
 )
 
 var (
-	ErrUserNotFound      = errors.New("user not found")
-	ErrInvalidPassword   = errors.New("invalid password")
-	ErrUserNotVerified   = errors.New("email not verified")
-	ErrInvalidToken      = errors.New("invalid token")
-	ErrTokenExpired      = errors.New("token expired")
-	ErrTokenRevoked      = errors.New("token revoked")
-	ErrEmailExists       = errors.New("email already exists")
+	ErrUserNotFound    = errors.New("user not found")
+	ErrInvalidPassword = errors.New("invalid password")
+	ErrUserNotVerified = errors.New("email not verified")
+	ErrInvalidToken    = errors.New("invalid token")
+	ErrTokenExpired    = errors.New("token expired")
+	ErrTokenRevoked    = errors.New("token revoked")
+	ErrEmailExists     = errors.New("email already exists")
 )
 
 type AuthService struct {
@@ -159,7 +160,6 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 		return "", "", ErrTokenRevoked
 	}
 
-
 	// Отзываем старый refresh token
 	if err := s.tokenRepo.Revoke(ctx, refreshToken); err != nil {
 		s.log.Error("Refresh: ошибка при отзыве старого токена", "error", err, "token_id", token.ID)
@@ -178,7 +178,6 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 		s.log.Error("Refresh: ошибка генерации refresh token", "error", err, "user_id", token.UserID)
 		return "", "", err
 	}
-
 
 	return accessToken, newRefreshToken, nil
 }
@@ -364,4 +363,21 @@ func (s *AuthService) parseResetToken(tokenString string) (uuid.UUID, error) {
 	}
 
 	return uuid.Parse(userIDStr)
+}
+
+// GetUserByEmail получает пользователя по email
+func (s *AuthService) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	return s.userRepo.GetByEmail(ctx, email)
+}
+
+// GetUserEmail получает email пользователя по ID
+func (s *AuthService) GetUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if user == nil {
+		return "", fmt.Errorf("user not found")
+	}
+	return user.Email, nil
 }

@@ -30,6 +30,10 @@ func (r *ParticipantRepository) table() string {
 	return fmt.Sprintf("%s.event_participants", r.schema)
 }
 
+func (r *ParticipantRepository) eventsTable() string {
+	return fmt.Sprintf("%s.events", r.schema)
+}
+
 // Add добавляет участника или приглашение
 func (r *ParticipantRepository) Add(ctx context.Context, participant *models.Participant) error {
 	if participant.InviteID == uuid.Nil {
@@ -37,13 +41,14 @@ func (r *ParticipantRepository) Add(ctx context.Context, participant *models.Par
 	}
 
 	query := fmt.Sprintf(`
-		INSERT INTO %s (invite_id, event_id, user_id, role, status, invited_email, joined_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		INSERT INTO %s (invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 	`, r.table())
 
 	_, err := r.db.ExecContext(ctx, query,
 		participant.InviteID, participant.EventID, participant.UserID,
-		participant.Role, participant.Status, participant.InvitedEmail,
+		participant.Role, participant.ApprovedByOwner, participant.ApprovedByUser,
+		participant.InvitedEmail,
 	)
 	if err != nil {
 		r.log.Error("ParticipantRepository.Add: ошибка добавления", "error", err, "event_id", participant.EventID)
@@ -60,18 +65,18 @@ func (r *ParticipantRepository) AddBatch(ctx context.Context, eventID uuid.UUID,
 	}
 
 	valueStrings := make([]string, 0, len(userIDs))
-	args := make([]interface{}, 0, len(userIDs)*4)
+	args := make([]interface{}, 0, len(userIDs)*5)
 	argPos := 1
 
 	for _, userID := range userIDs {
 		inviteID := uuid.New()
-		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, 'member', 'accepted', NULL, NOW())", argPos, argPos+1, argPos+2))
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, 'member', true, NULL, NULL, NOW())", argPos, argPos+1, argPos+2))
 		args = append(args, inviteID, eventID, userID)
 		argPos += 3
 	}
 
 	query := fmt.Sprintf(`
-		INSERT INTO %s (invite_id, event_id, user_id, role, status, invited_email, joined_at)
+		INSERT INTO %s (invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at)
 		VALUES %s
 	`, r.table(), strings.Join(valueStrings, ","))
 
@@ -87,7 +92,7 @@ func (r *ParticipantRepository) AddBatch(ctx context.Context, eventID uuid.UUID,
 // GetByEventID получает всех участников события
 func (r *ParticipantRepository) GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error) {
 	query := fmt.Sprintf(`
-		SELECT invite_id, event_id, user_id, role, status, invited_email, joined_at
+		SELECT invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at
 		FROM %s WHERE event_id = $1
 	`, r.table())
 
@@ -102,13 +107,15 @@ func (r *ParticipantRepository) GetByEventID(ctx context.Context, eventID uuid.U
 	for rows.Next() {
 		var p models.Participant
 		var invitedEmail sql.NullString
+		var approvedByUser sql.NullBool
 
 		err := rows.Scan(
 			&p.InviteID,
 			&p.EventID,
 			&p.UserID,
 			&p.Role,
-			&p.Status,
+			&p.ApprovedByOwner,
+			&approvedByUser,
 			&invitedEmail,
 			&p.JoinedAt,
 		)
@@ -117,6 +124,9 @@ func (r *ParticipantRepository) GetByEventID(ctx context.Context, eventID uuid.U
 			return nil, err
 		}
 
+		if approvedByUser.Valid {
+			p.ApprovedByUser = &approvedByUser.Bool
+		}
 		if invitedEmail.Valid {
 			p.InvitedEmail = invitedEmail.String
 		}
@@ -129,15 +139,17 @@ func (r *ParticipantRepository) GetByEventID(ctx context.Context, eventID uuid.U
 // GetByUserAndEvent получает участника по событию и пользователю
 func (r *ParticipantRepository) GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error) {
 	query := fmt.Sprintf(`
-		SELECT invite_id, event_id, user_id, role, status, invited_email, joined_at
+		SELECT invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at
 		FROM %s WHERE event_id = $1 AND user_id = $2
 	`, r.table())
 
 	p := &models.Participant{}
 	var invitedEmail sql.NullString
+	var approvedByUser sql.NullBool
 
 	err := r.db.QueryRowContext(ctx, query, eventID, userID).Scan(
-		&p.InviteID, &p.EventID, &p.UserID, &p.Role, &p.Status, &invitedEmail, &p.JoinedAt,
+		&p.InviteID, &p.EventID, &p.UserID, &p.Role,
+		&p.ApprovedByOwner, &approvedByUser, &invitedEmail, &p.JoinedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -147,6 +159,9 @@ func (r *ParticipantRepository) GetByUserAndEvent(ctx context.Context, eventID, 
 		return nil, err
 	}
 
+	if approvedByUser.Valid {
+		p.ApprovedByUser = &approvedByUser.Bool
+	}
 	if invitedEmail.Valid {
 		p.InvitedEmail = invitedEmail.String
 	}
@@ -154,18 +169,153 @@ func (r *ParticipantRepository) GetByUserAndEvent(ctx context.Context, eventID, 
 	return p, nil
 }
 
-// UpdateStatus обновляет статус участника
-func (r *ParticipantRepository) UpdateStatus(ctx context.Context, eventID, userID uuid.UUID, status string) error {
-	query := fmt.Sprintf("UPDATE %s SET status = $1 WHERE event_id = $2 AND user_id = $3", r.table())
-	_, err := r.db.ExecContext(ctx, query, status, eventID, userID)
+// GetByInviteID получает участника по invite_id
+func (r *ParticipantRepository) GetByInviteID(ctx context.Context, inviteID uuid.UUID) (*models.Participant, error) {
+	query := fmt.Sprintf(`
+		SELECT invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at
+		FROM %s WHERE invite_id = $1
+	`, r.table())
+
+	p := &models.Participant{}
+	var invitedEmail sql.NullString
+	var approvedByUser sql.NullBool
+
+	err := r.db.QueryRowContext(ctx, query, inviteID).Scan(
+		&p.InviteID, &p.EventID, &p.UserID, &p.Role,
+		&p.ApprovedByOwner, &approvedByUser, &invitedEmail, &p.JoinedAt,
+	)
 	if err != nil {
-		r.log.Error("ParticipantRepository.UpdateStatus: ошибка", "error", err, "event_id", eventID, "user_id", userID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		r.log.Error("ParticipantRepository.GetByInviteID: ошибка", "error", err, "invite_id", inviteID)
+		return nil, err
+	}
+
+	if approvedByUser.Valid {
+		p.ApprovedByUser = &approvedByUser.Bool
+	}
+	if invitedEmail.Valid {
+		p.InvitedEmail = invitedEmail.String
+	}
+
+	return p, nil
+}
+
+// GetInvitesByUserID возвращает приглашения пользователя (approved_by_owner = true AND approved_by_user IS NULL)
+func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
+	r.log.Debug("GetInvitesByUserID: поиск приглашений", "user_id", userID)
+
+	query := fmt.Sprintf(`
+		SELECT 
+			p.invite_id,
+			e.id as event_id,
+			e.title as event_title,
+			e.description as event_description,
+			e.start_date as event_start_date,
+			e.end_date as event_end_date,
+			e.owner_id as event_owner_id,
+			COALESCE((
+				SELECT COUNT(*) 
+				FROM %s p2 
+				WHERE p2.event_id = e.id 
+				  AND p2.approved_by_owner = true 
+				  AND p2.approved_by_user = true
+			), 0) as participants_count,
+			p.user_id as user_id,  -- ← переименовано
+			p.joined_at as invited_at
+		FROM %s p
+		JOIN %s e ON p.event_id = e.id
+		WHERE p.user_id = $1 
+		  AND p.approved_by_owner = true 
+		  AND p.approved_by_user IS NULL
+		ORDER BY p.joined_at DESC
+	`, r.table(), r.table(), r.eventsTable())
+
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		r.log.Error("GetInvitesByUserID: ошибка запроса", "error", err, "user_id", userID)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var invites []models.Invite
+	for rows.Next() {
+		var invite models.Invite
+		var description sql.NullString
+		var userID uuid.UUID
+
+		err := rows.Scan(
+			&invite.InviteID,
+			&invite.EventID,
+			&invite.EventTitle,
+			&description,
+			&invite.EventStartDate,
+			&invite.EventEndDate,
+			&invite.EventOwnerID,
+			&invite.ParticipantsCount,
+			&userID,
+			&invite.InvitedAt,
+		)
+		if err != nil {
+			r.log.Error("GetInvitesByUserID: ошибка сканирования", "error", err)
+			return nil, err
+		}
+
+		if description.Valid {
+			invite.EventDescription = description.String
+		}
+		invite.UserID = userID
+
+		invites = append(invites, invite)
+	}
+
+	r.log.Debug("GetInvitesByUserID: получены приглашения", "user_id", userID, "count", len(invites))
+	return invites, nil
+}
+
+// UpdateApproval обновляет флаги подтверждения по invite_id
+// Если поле nil — не обновляется
+func (r *ParticipantRepository) UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser *bool) error {
+	query := "UPDATE " + r.table() + " SET "
+	args := []interface{}{}
+	argPos := 1
+	setParts := []string{}
+
+	if approveByOwner != nil {
+		setParts = append(setParts, fmt.Sprintf("approved_by_owner = $%d", argPos))
+		args = append(args, *approveByOwner)
+		argPos++
+	}
+
+	if approveByUser != nil {
+		setParts = append(setParts, fmt.Sprintf("approved_by_user = $%d", argPos))
+		args = append(args, *approveByUser)
+		argPos++
+	}
+
+	if len(setParts) == 0 {
+		r.log.Debug("UpdateApproval: нет полей для обновления", "invite_id", inviteID)
+		return nil
+	}
+
+	query += strings.Join(setParts, ", ") + fmt.Sprintf(" WHERE invite_id = $%d", argPos)
+	args = append(args, inviteID)
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		r.log.Error("ParticipantRepository.UpdateApproval: ошибка обновления",
+			"error", err, "invite_id", inviteID)
 		return err
 	}
+
+	rows, _ := result.RowsAffected()
+	r.log.Debug("ParticipantRepository.UpdateApproval: обновлено",
+		"invite_id", inviteID, "rows", rows)
 	return nil
 }
 
-// Remove удаляет участника
+// Remove удаляет участника по event_id и user_id
 func (r *ParticipantRepository) Remove(ctx context.Context, eventID, userID uuid.UUID) error {
 	query := fmt.Sprintf("DELETE FROM %s WHERE event_id = $1 AND user_id = $2", r.table())
 	result, err := r.db.ExecContext(ctx, query, eventID, userID)
@@ -179,11 +329,12 @@ func (r *ParticipantRepository) Remove(ctx context.Context, eventID, userID uuid
 	return nil
 }
 
-// IsParticipant проверяет, является ли пользователь участником со статусом accepted
+// IsParticipant проверяет, является ли пользователь полноценным участником (оба флага true)
 func (r *ParticipantRepository) IsParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
 	query := fmt.Sprintf(`
 		SELECT EXISTS(SELECT 1 FROM %s 
-		WHERE event_id = $1 AND user_id = $2 AND status = 'accepted')
+		WHERE event_id = $1 AND user_id = $2 
+		  AND approved_by_owner = true AND approved_by_user = true)
 	`, r.table())
 	var exists bool
 	err := r.db.QueryRowContext(ctx, query, eventID, userID).Scan(&exists)
@@ -194,11 +345,11 @@ func (r *ParticipantRepository) IsParticipant(ctx context.Context, eventID, user
 	return exists, nil
 }
 
-// IsOwner проверяет, является ли пользователь владельцем со статусом accepted
+// IsOwner проверяет, является ли пользователь владельцем
 func (r *ParticipantRepository) IsOwner(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
 	query := fmt.Sprintf(`
 		SELECT EXISTS(SELECT 1 FROM %s 
-		WHERE event_id = $1 AND user_id = $2 AND role = 'owner' AND status = 'accepted')
+		WHERE event_id = $1 AND user_id = $2 AND role = 'owner')
 	`, r.table())
 	var exists bool
 	err := r.db.QueryRowContext(ctx, query, eventID, userID).Scan(&exists)
@@ -209,9 +360,14 @@ func (r *ParticipantRepository) IsOwner(ctx context.Context, eventID, userID uui
 	return exists, nil
 }
 
-// CountByEventID считает количество принятых участников
+// CountByEventID считает количество активных участников (approved_by_owner = true AND approved_by_user = true)
 func (r *ParticipantRepository) CountByEventID(ctx context.Context, eventID uuid.UUID) (int, error) {
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE event_id = $1 AND status = 'accepted'", r.table())
+	query := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s 
+		WHERE event_id = $1 
+		  AND approved_by_owner = true 
+		  AND approved_by_user = true
+	`, r.table())
 	var count int
 	err := r.db.QueryRowContext(ctx, query, eventID).Scan(&count)
 	if err != nil {
@@ -221,89 +377,67 @@ func (r *ParticipantRepository) CountByEventID(ctx context.Context, eventID uuid
 	return count, nil
 }
 
-// FindByInvitedEmail находит приглашение по email
-func (r *ParticipantRepository) FindByInvitedEmail(ctx context.Context, eventID uuid.UUID, email string) (*models.Participant, error) {
+// LinkInvitation связывает приглашение с пользователем (для незарегистрированных)
+func (r *ParticipantRepository) LinkInvitation(ctx context.Context, inviteID, userID uuid.UUID) error {
 	query := fmt.Sprintf(`
-		SELECT invite_id, event_id, user_id, role, status, invited_email, joined_at
-		FROM %s WHERE event_id = $1 AND invited_email = $2
+		UPDATE %s SET user_id = $1, invited_email = NULL
+		WHERE invite_id = $2 AND user_id = '00000000-0000-0000-0000-000000000000'
 	`, r.table())
 
-	p := &models.Participant{}
-	var invitedEmail sql.NullString
-	var userID sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, eventID, email).Scan(
-		&p.InviteID, &p.EventID, &userID, &p.Role, &p.Status, &invitedEmail, &p.JoinedAt,
-	)
+	result, err := r.db.ExecContext(ctx, query, userID, inviteID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		r.log.Error("ParticipantRepository.FindByInvitedEmail: ошибка", "error", err, "event_id", eventID, "email", email)
+		r.log.Error("ParticipantRepository.LinkInvitation: ошибка", "error", err, "invite_id", inviteID, "user_id", userID)
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	r.log.Debug("ParticipantRepository.LinkInvitation: приглашение связано", "invite_id", inviteID, "user_id", userID, "rows", rows)
+	return nil
+}
+
+// FindByInvitedEmail находит приглашения по email (для незарегистрированных)
+func (r *ParticipantRepository) FindByInvitedEmail(ctx context.Context, email string) ([]models.Participant, error) {
+	query := fmt.Sprintf(`
+		SELECT invite_id, event_id, user_id, role, approved_by_owner, approved_by_user, invited_email, joined_at
+		FROM %s WHERE invited_email = $1 AND user_id = '00000000-0000-0000-0000-000000000000'
+	`, r.table())
+
+	rows, err := r.db.QueryContext(ctx, query, email)
+	if err != nil {
+		r.log.Error("ParticipantRepository.FindByInvitedEmail: ошибка", "error", err, "email", email)
 		return nil, err
 	}
+	defer rows.Close()
 
-	if userID.Valid {
-		p.UserID, _ = uuid.Parse(userID.String)
-	}
-	if invitedEmail.Valid {
-		p.InvitedEmail = invitedEmail.String
-	}
+	var participants []models.Participant
+	for rows.Next() {
+		var p models.Participant
+		var invitedEmail sql.NullString
+		var approvedByUser sql.NullBool
 
-	return p, nil
-}
-
-// LinkInvitedParticipant связывает приглашение с пользователем по invite_id
-func (r *ParticipantRepository) LinkInvitedParticipant(ctx context.Context, eventID, userID uuid.UUID, email string) error {
-	query := fmt.Sprintf(`
-		UPDATE %s SET user_id = $1, invited_email = NULL
-		WHERE event_id = $2 AND invited_email = $3 AND status = 'pending'
-	`, r.table())
-
-	result, err := r.db.ExecContext(ctx, query, userID, eventID, email)
-	if err != nil {
-		r.log.Error("ParticipantRepository.LinkInvitedParticipant: ошибка", "error", err, "event_id", eventID, "user_id", userID)
-		return err
-	}
-
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		// Если не нашли по invited_email, добавляем как нового участника
-		participant := &models.Participant{
-			EventID: eventID,
-			UserID:  userID,
-			Role:    "member",
-			Status:  "accepted",
+		err := rows.Scan(
+			&p.InviteID,
+			&p.EventID,
+			&p.UserID,
+			&p.Role,
+			&p.ApprovedByOwner,
+			&approvedByUser,
+			&invitedEmail,
+			&p.JoinedAt,
+		)
+		if err != nil {
+			r.log.Error("ParticipantRepository.FindByInvitedEmail: ошибка сканирования", "error", err)
+			return nil, err
 		}
-		return r.Add(ctx, participant)
+
+		if approvedByUser.Valid {
+			p.ApprovedByUser = &approvedByUser.Bool
+		}
+		if invitedEmail.Valid {
+			p.InvitedEmail = invitedEmail.String
+		}
+		participants = append(participants, p)
 	}
 
-	r.log.Debug("ParticipantRepository.LinkInvitedParticipant: приглашение связано", "event_id", eventID, "user_id", userID, "email", email)
-	return nil
-}
-
-// LinkAllInvitationsByEmail связывает все приглашения с указанным email с пользователем
-func (r *ParticipantRepository) LinkAllInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error {
-	query := fmt.Sprintf(`
-		UPDATE %s SET user_id = $1, invited_email = NULL
-		WHERE invited_email = $2 AND status = 'pending'
-	`, r.table())
-
-	result, err := r.db.ExecContext(ctx, query, userID, email)
-	if err != nil {
-		r.log.Error("ParticipantRepository.LinkAllInvitationsByEmail: ошибка обновления",
-			"error", err, "user_id", userID, "email", email)
-		return err
-	}
-
-	rows, _ := result.RowsAffected()
-	if rows > 0 {
-		r.log.Info("ParticipantRepository.LinkAllInvitationsByEmail: приглашения связаны",
-			"user_id", userID, "email", email, "count", rows)
-	} else {
-		r.log.Debug("ParticipantRepository.LinkAllInvitationsByEmail: приглашения не найдены",
-			"user_id", userID, "email", email)
-	}
-
-	return nil
+	return participants, nil
 }
