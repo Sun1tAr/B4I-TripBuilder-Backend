@@ -4,7 +4,7 @@ SET search_path TO tpb_event;
 -- Добавляем новые колонки
 ALTER TABLE event_participants
     ADD COLUMN approved_by_owner BOOLEAN DEFAULT false,
-    ADD COLUMN approved_by_user BOOLEAN DEFAULT false;
+    ADD COLUMN approved_by_user BOOLEAN DEFAULT null;
 
 -- Переносим данные из status
 -- Владельцы (role = 'owner') со статусом 'accepted' → approved_by_owner = true
@@ -17,10 +17,12 @@ UPDATE event_participants
 SET approved_by_user = true
 WHERE status = 'accepted' AND role = 'member';
 
--- Записи со статусом 'pending' остаются с false для обоих флагов (уже по умолчанию)
+-- Записи со статусом 'pending' остаются по умолчанию
 
--- Записи со статусом 'declined' удаляем
-DELETE FROM event_participants WHERE status = 'declined';
+-- Записи со статусом 'declined'
+UPDATE event_participants
+SET approved_by_user = false
+WHERE status = 'declined';
 
 -- Удаляем старую колонку
 ALTER TABLE event_participants DROP COLUMN status;

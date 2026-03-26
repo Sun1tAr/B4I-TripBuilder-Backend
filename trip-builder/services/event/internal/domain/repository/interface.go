@@ -47,6 +47,7 @@ type ParticipantRepository interface {
 	GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error)
 	GetByInviteID(ctx context.Context, inviteID uuid.UUID) (*models.Participant, error)
 	GetInvitesByEmail(ctx context.Context, email string) ([]models.Invite, error)
+	GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error)
 
 	// Обновление
 	UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser bool) error

@@ -468,7 +468,7 @@ func (s *EventService) GetParticipants(ctx context.Context, eventID uuid.UUID) (
 
 // GetInvites получает приглашения пользователя (где approved_by_owner = true, approved_by_user = false)
 func (s *EventService) GetInvites(ctx context.Context, email string) ([]models.Invite, error) {
-	s.log.Debug("GetInvites: начало", "email", email)
+	s.log.Warn("GetInvites: начало получения приглашений по ", "email", email)
 	return s.participantRepo.GetInvitesByEmail(ctx, email)
 }
 
@@ -948,4 +948,10 @@ func (s *EventService) updateEventStatuses(ctx context.Context) {
 // GetUserEmail получает email пользователя из Auth Service
 func (s *EventService) GetUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
 	return s.authClient.GetUserEmail(ctx, userID)
+}
+
+// GetInvitesByUserID получает приглашения по user_id (для зарегистрированных)
+func (s *EventService) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
+	s.log.Debug("GetInvitesByUserID: начало", "user_id", userID)
+	return s.participantRepo.GetInvitesByUserID(ctx, userID)
 }

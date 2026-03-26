@@ -66,30 +66,26 @@ func (h *EventHandler) getUserEmailFromContext(r *http.Request) string {
 	return email
 }
 
-// eventToResponse преобразует модель события в DTO ответа
-func eventToResponse(event *models.Event) *eventdto.EventResponse {
-	return &eventdto.EventResponse{
-		ID:          event.ID,
-		RouteID:     event.RouteID,
-		Title:       event.Title,
-		Description: event.Description,
-		OwnerID:     event.OwnerID,
-		StartDate:   event.StartDate,
-		EndDate:     event.EndDate,
-		IsGroup:     event.IsGroup,
-		Status:      event.Status,
-		IsPublic:    event.IsPublic,
-		CreatedAt:   event.CreatedAt,
-		UpdatedAt:   event.UpdatedAt,
-	}
-}
-
+// eventDetailToResponse преобразует детальную модель в DTO ответа
 // eventDetailToResponse преобразует детальную модель в DTO ответа
 func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetailResponse {
 	resp := &eventdto.EventDetailResponse{
-		EventResponse: *eventToResponse(&event.Event),
-		Participants:  make([]eventdto.ParticipantResponse, len(event.Participants)),
-		Waypoints:     make([]eventdto.WaypointResponse, len(event.Waypoints)),
+		EventResponse: eventdto.EventResponse{
+			ID:          event.ID,
+			RouteID:     event.RouteID,
+			Title:       event.Title,
+			Description: event.Description,
+			OwnerID:     event.OwnerID,
+			StartDate:   event.StartDate,
+			EndDate:     event.EndDate,
+			IsGroup:     event.IsGroup,
+			Status:      event.Status,
+			IsPublic:    event.IsPublic,
+			CreatedAt:   event.CreatedAt,
+			UpdatedAt:   event.UpdatedAt,
+		},
+		Participants: make([]eventdto.ParticipantResponse, len(event.Participants)),
+		Waypoints:    make([]eventdto.WaypointResponse, len(event.Waypoints)),
 	}
 
 	for i, p := range event.Participants {
@@ -137,6 +133,13 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	sizeStr := r.URL.Query().Get("size")
 	status := r.URL.Query().Get("status")
 
+	log.Debug("GetMyEvents: параметры запроса",
+		"page", pageStr,
+		"size", sizeStr,
+		"status", status,
+		"user_id", userID,
+	)
+
 	var page, size int
 	var err error
 
@@ -167,12 +170,29 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]eventdto.EventResponse, len(events))
-	for i, e := range events {
-		items[i] = *eventToResponse(&e)
+	// Преобразуем в DTO
+	items := make([]eventdto.EventResponse, 0, len(events))
+	for _, e := range events {
+		items = append(items, eventdto.EventResponse{
+			ID:          e.ID,
+			RouteID:     e.RouteID,
+			Title:       e.Title,
+			Description: e.Description,
+			OwnerID:     e.OwnerID,
+			StartDate:   e.StartDate,
+			EndDate:     e.EndDate,
+			IsGroup:     e.IsGroup,
+			Status:      e.Status,
+			IsPublic:    e.IsPublic,
+			CreatedAt:   e.CreatedAt,
+			UpdatedAt:   e.UpdatedAt,
+		})
 	}
 
 	totalPages := (int(total) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
 
 	response := eventdto.ListEventsResponse{
 		Items:      items,
@@ -181,6 +201,13 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 		Size:       size,
 		TotalPages: totalPages,
 	}
+
+	log.Info("GetMyEvents: поездки получены",
+		"user_id", userID,
+		"count", len(items),
+		"total", total,
+		"page", page,
+	)
 
 	h.writeJSON(w, http.StatusOK, response)
 }
@@ -190,13 +217,35 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	log.Debug("GetPublicEvents: запрос публичных поездок")
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+
+	log.Debug("GetPublicEvents: параметры запроса",
+		"page", pageStr,
+		"size", sizeStr,
+	)
+
+	var page, size int
+	var err error
+
+	// Если параметры пагинации не указаны — возвращаем все записи
+	if pageStr == "" && sizeStr == "" {
 		page = 1
-	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 || size > 100 {
-		size = 10
+		size = 10000
+		log.Debug("GetPublicEvents: пагинация не указана, возвращаем все записи")
+	} else {
+		page, err = strconv.Atoi(pageStr)
+		if err != nil || page < 1 {
+			page = 1
+		}
+
+		size, err = strconv.Atoi(sizeStr)
+		if err != nil || size < 1 {
+			size = 10
+		}
+		if size > 100 {
+			size = 100
+		}
 	}
 
 	events, total, err := h.eventService.GetPublicEvents(r.Context(), page, size)
@@ -206,12 +255,29 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]eventdto.EventResponse, len(events))
-	for i, e := range events {
-		items[i] = *eventToResponse(&e)
+	// Преобразуем в DTO
+	items := make([]eventdto.EventResponse, 0, len(events))
+	for _, e := range events {
+		items = append(items, eventdto.EventResponse{
+			ID:          e.ID,
+			RouteID:     e.RouteID,
+			Title:       e.Title,
+			Description: e.Description,
+			OwnerID:     e.OwnerID,
+			StartDate:   e.StartDate,
+			EndDate:     e.EndDate,
+			IsGroup:     e.IsGroup,
+			Status:      e.Status,
+			IsPublic:    e.IsPublic,
+			CreatedAt:   e.CreatedAt,
+			UpdatedAt:   e.UpdatedAt,
+		})
 	}
 
 	totalPages := (int(total) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
 
 	response := eventdto.ListEventsResponse{
 		Items:      items,
@@ -220,6 +286,12 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 		Size:       size,
 		TotalPages: totalPages,
 	}
+
+	log.Info("GetPublicEvents: публичные поездки получены",
+		"count", len(items),
+		"total", total,
+		"page", page,
+	)
 
 	h.writeJSON(w, http.StatusOK, response)
 }
@@ -239,10 +311,13 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 
 	userID := h.getUserIDFromContext(r)
 
+	log.Debug("GetEventByID: запрос", "event_id", eventID, "user_id", userID)
+
 	event, err := h.eventService.GetEventByID(r.Context(), eventID, userID)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEventNotFound):
+			log.Debug("GetEventByID: событие не найдено", "event_id", eventID)
 			h.writeError(w, http.StatusNotFound, "event not found", "")
 		default:
 			log.Error("Ошибка получения поездки", "error", err, "event_id", eventID)
@@ -251,6 +326,7 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info("GetEventByID: событие получено", "event_id", eventID)
 	response := eventDetailToResponse(event)
 	h.writeJSON(w, http.StatusOK, response)
 }
@@ -258,7 +334,7 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 // CreateEvent создаёт новую поездку
 func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	log.Debug("CreateEvent: создание поездки")
+	log.Info("CreateEvent: создание поездки") // INFO — бизнес-операция
 
 	userID := h.getUserIDFromContext(r)
 	if userID == nil {
@@ -268,10 +344,18 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	var req eventdto.CreateEventRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Debug("CreateEvent: ошибка декодирования", "error", err)
+		log.Debug("CreateEvent: ошибка декодирования", "error", err) // DEBUG — проверка
 		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+
+	log.Debug("CreateEvent: данные запроса",
+		"route_id", req.RouteID,
+		"title", req.Title,
+		"start_date", req.StartDate,
+		"is_group", req.IsGroup,
+		"invited_emails_count", len(req.InvitedEmails),
+	)
 
 	createReq := &models.CreateEventRequest{
 		RouteID:       req.RouteID,
@@ -286,6 +370,7 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidStartDate):
+			log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
 			h.writeError(w, http.StatusBadRequest, "start date cannot be in the past", "")
 		default:
 			log.Error("Ошибка создания поездки", "error", err)
@@ -294,6 +379,7 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info("CreateEvent: поездка создана", "event_id", event.ID, "user_id", userID)
 	response := eventDetailToResponse(event)
 	h.writeJSON(w, http.StatusCreated, response)
 }
@@ -324,6 +410,15 @@ func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Debug("UpdateEvent: данные запроса",
+		"event_id", eventID,
+		"user_id", userID,
+		"title", req.Title,
+		"description", req.Description,
+		"start_date", req.StartDate,
+		"is_public", req.IsPublic,
+	)
+
 	updateReq := &models.UpdateEventRequest{
 		Title:       req.Title,
 		Description: req.Description,
@@ -335,10 +430,13 @@ func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEventNotFound):
+			log.Debug("UpdateEvent: событие не найдено", "event_id", eventID)
 			h.writeError(w, http.StatusNotFound, "event not found", "")
 		case errors.Is(err, service.ErrNotOwner):
+			log.Debug("UpdateEvent: пользователь не владелец", "user_id", userID, "event_id", eventID)
 			h.writeError(w, http.StatusForbidden, "you are not the owner of this event", "")
 		case errors.Is(err, service.ErrInvalidStartDate):
+			log.Debug("UpdateEvent: дата начала в прошлом", "start_date", req.StartDate)
 			h.writeError(w, http.StatusBadRequest, "start date cannot be in the past", "")
 		default:
 			log.Error("Ошибка обновления поездки", "error", err, "event_id", eventID)
@@ -347,7 +445,24 @@ func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := eventToResponse(event)
+	log.Info("UpdateEvent: поездка обновлена", "event_id", eventID, "user_id", userID)
+
+	// Преобразуем в DTO
+	response := eventdto.EventResponse{
+		ID:          event.ID,
+		RouteID:     event.RouteID,
+		Title:       event.Title,
+		Description: event.Description,
+		OwnerID:     event.OwnerID,
+		StartDate:   event.StartDate,
+		EndDate:     event.EndDate,
+		IsGroup:     event.IsGroup,
+		Status:      event.Status,
+		IsPublic:    event.IsPublic,
+		CreatedAt:   event.CreatedAt,
+		UpdatedAt:   event.UpdatedAt,
+	}
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
@@ -591,26 +706,42 @@ func (h *EventHandler) GetInvites(w http.ResponseWriter, r *http.Request) {
 
 	userID := h.getUserIDFromContext(r)
 	if userID == nil {
+		log.Debug("GetInvites: пользователь не авторизован")
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
 		return
 	}
 
-	// Получаем email пользователя из Auth Service
-	email, err := h.eventService.GetUserEmail(r.Context(), *userID)
+	log.Debug("GetInvites: ищем приглашения для пользователя", "user_id", userID)
+
+	invites, err := h.eventService.GetInvitesByUserID(r.Context(), *userID)
 	if err != nil {
-		log.Error("GetInvites: ошибка получения email", "error", err, "user_id", userID)
+		log.Error("Ошибка получения приглашений", "error", err, "user_id", userID)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 		return
 	}
 
-	invites, err := h.eventService.GetInvites(r.Context(), email)
-	if err != nil {
-		log.Error("Ошибка получения приглашений", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		return
+	// Преобразуем в DTO
+	response := make([]eventdto.InviteResponse, 0, len(invites))
+	for _, inv := range invites {
+		resp := eventdto.InviteResponse{
+			InviteID:          inv.InviteID,
+			EventID:           inv.EventID,
+			EventTitle:        inv.EventTitle,
+			EventStartDate:    inv.EventStartDate,
+			EventEndDate:      inv.EventEndDate,
+			EventOwnerID:      inv.EventOwnerID,
+			ParticipantsCount: inv.ParticipantsCount,
+			InvitedBy:         inv.InvitedBy,
+			InvitedAt:         inv.InvitedAt,
+		}
+		if inv.EventDescription != "" {
+			resp.EventDescription = inv.EventDescription
+		}
+		response = append(response, resp)
 	}
 
-	h.writeJSON(w, http.StatusOK, invites)
+	log.Info("GetInvites: приглашения получены", "user_id", userID, "count", len(response))
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // AcceptInvite принимает приглашение

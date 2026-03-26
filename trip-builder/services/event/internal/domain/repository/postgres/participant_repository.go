@@ -463,3 +463,77 @@ func (r *ParticipantRepository) LinkAllInvitationsByEmail(ctx context.Context, u
 
 	return nil
 }
+
+// GetInvitesByUserID возвращает приглашения зарегистрированного пользователя
+func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
+	r.log.Debug("GetInvitesByUserID: поиск приглашений", "user_id", userID)
+
+	query := fmt.Sprintf(`
+		SELECT 
+			p.invite_id,
+			e.id as event_id,
+			e.title as event_title,
+			e.description as event_description,
+			e.start_date as event_start_date,
+			e.end_date as event_end_date,
+			e.owner_id as event_owner_id,
+			COALESCE((
+				SELECT COUNT(*) 
+				FROM %s p2 
+				WHERE p2.event_id = e.id 
+				  AND p2.approved_by_owner = true 
+				  AND p2.approved_by_user = true
+			), 0) as participants_count,
+			p.user_id as invited_by,
+			p.joined_at as invited_at
+		FROM %s p
+		JOIN %s e ON p.event_id = e.id
+		WHERE p.user_id = $1 
+		  AND p.approved_by_owner = true 
+		  AND p.approved_by_user = false
+		ORDER BY p.joined_at DESC
+	`, r.table(), r.table(), r.eventsTable())
+
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		r.log.Error("GetInvitesByUserID: ошибка запроса", "error", err, "user_id", userID)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var invites []models.Invite
+	for rows.Next() {
+		var invite models.Invite
+		var description sql.NullString
+		var invitedBy sql.NullString
+
+		err := rows.Scan(
+			&invite.InviteID,
+			&invite.EventID,
+			&invite.EventTitle,
+			&description,
+			&invite.EventStartDate,
+			&invite.EventEndDate,
+			&invite.EventOwnerID,
+			&invite.ParticipantsCount,
+			&invitedBy,
+			&invite.InvitedAt,
+		)
+		if err != nil {
+			r.log.Error("GetInvitesByUserID: ошибка сканирования", "error", err)
+			return nil, err
+		}
+
+		if description.Valid {
+			invite.EventDescription = description.String
+		}
+		if invitedBy.Valid {
+			invite.InvitedBy, _ = uuid.Parse(invitedBy.String)
+		}
+
+		invites = append(invites, invite)
+	}
+
+	r.log.Debug("GetInvitesByUserID: получены приглашения", "user_id", userID, "count", len(invites))
+	return invites, nil
+}

@@ -97,3 +97,17 @@ type ListEventsResponse struct {
 	Size       int             `json:"size"`
 	TotalPages int             `json:"total_pages"`
 }
+
+// InviteResponse DTO для приглашения пользователя
+type InviteResponse struct {
+	InviteID          uuid.UUID `json:"invite_id"`
+	EventID           uuid.UUID `json:"event_id"`
+	EventTitle        string    `json:"event_title"`
+	EventDescription  string    `json:"event_description,omitempty"`
+	EventStartDate    time.Time `json:"event_start_date"`
+	EventEndDate      time.Time `json:"event_end_date"`
+	EventOwnerID      uuid.UUID `json:"event_owner_id"`
+	ParticipantsCount int       `json:"participants_count"`
+	InvitedBy         uuid.UUID `json:"invited_by"`
+	InvitedAt         time.Time `json:"invited_at"`
+}
