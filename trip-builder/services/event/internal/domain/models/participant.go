@@ -12,14 +12,19 @@ type Participant struct {
 	UserID          uuid.UUID `json:"user_id"`
 	Role            string    `json:"role"` // owner, member
 	ApprovedByOwner bool      `json:"approved_by_owner"`
-	ApprovedByUser  bool      `json:"approved_by_user"`
+	ApprovedByUser  *bool     `json:"approved_by_user"` // null = приглашение, true = принято, false = отклонено
 	InvitedEmail    string    `json:"invited_email,omitempty"`
 	JoinedAt        time.Time `json:"joined_at"`
 }
 
 // IsActive возвращает true, если участник полностью подтверждён
 func (p *Participant) IsActive() bool {
-	return p.ApprovedByOwner && p.ApprovedByUser
+	return p.ApprovedByOwner && p.ApprovedByUser != nil && *p.ApprovedByUser
+}
+
+// IsInvite возвращает true, если это приглашение (ожидает подтверждения)
+func (p *Participant) IsInvite() bool {
+	return p.ApprovedByOwner && p.ApprovedByUser == nil
 }
 
 type Invite struct {

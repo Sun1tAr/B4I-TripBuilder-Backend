@@ -47,11 +47,11 @@ type ParticipantRepository interface {
 	GetByUserAndEvent(ctx context.Context, eventID, userID uuid.UUID) (*models.Participant, error)
 	GetByInviteID(ctx context.Context, inviteID uuid.UUID) (*models.Participant, error)
 
-	// Получение приглашений (approved_by_owner = true, approved_by_user = false)
+	// Получение приглашений (approved_by_owner = true AND approved_by_user IS NULL)
 	GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error)
 
 	// Обновление
-	UpdateApproval(ctx context.Context, eventID, userID uuid.UUID, approveByOwner bool, approveByUser bool) error
+	UpdateApproval(ctx context.Context, inviteID uuid.UUID, approveByOwner, approveByUser *bool) error
 
 	// Удаление
 	Remove(ctx context.Context, eventID, userID uuid.UUID) error
@@ -60,6 +60,10 @@ type ParticipantRepository interface {
 	IsParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 	IsOwner(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 	CountByEventID(ctx context.Context, eventID uuid.UUID) (int, error)
+
+	// Для связывания незарегистрированных пользователей
+	LinkInvitation(ctx context.Context, inviteID uuid.UUID, userID uuid.UUID) error
+	FindByInvitedEmail(ctx context.Context, email string) ([]models.Participant, error)
 }
 
 type WaypointRepository interface {

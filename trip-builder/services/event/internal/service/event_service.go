@@ -64,130 +64,6 @@ func NewEventService(
 	}
 }
 
-// CreateEvent создаёт новую поездку
-func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *models.CreateEventRequest) (*models.EventWithDetails, error) {
-	s.log.Debug("CreateEvent: начало", "user_id", userID, "route_id", req.RouteID, "title", req.Title, "start_date", req.StartDate)
-
-	// Проверяем дату начала
-	if req.StartDate.Before(time.Now()) {
-		s.log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
-		return nil, ErrInvalidStartDate
-	}
-
-	// Получаем маршрут из Route Service
-	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, req.RouteID.String())
-	if err != nil {
-		s.log.Error("CreateEvent: ошибка получения маршрута", "error", err, "route_id", req.RouteID)
-		return nil, fmt.Errorf("failed to get route: %w", err)
-	}
-
-	// Создаём ID события
-	eventID := uuid.New()
-	now := time.Now()
-
-	// Рассчитываем даты точек
-	waypoints := s.calculateWaypointDates(routeData.Waypoints, req.StartDate, eventID)
-
-	// Вычисляем дату окончания
-	endDate := req.StartDate
-	if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
-		endDate = *waypoints[len(waypoints)-1].PlannedEnd
-	}
-
-	// Создаём событие
-	event := &models.Event{
-		ID:          eventID,
-		RouteID:     req.RouteID,
-		Title:       req.Title,
-		Description: req.Description,
-		OwnerID:     userID,
-		StartDate:   req.StartDate,
-		EndDate:     endDate,
-		IsGroup:     req.IsGroup,
-		Status:      "planned",
-		IsPublic:    false,
-		CreatedAt:   now,
-	}
-
-	// Создаём событие и точки в одной транзакции
-	if err := s.eventRepo.CreateWithWaypoints(ctx, event, waypoints); err != nil {
-		s.log.Error("CreateEvent: ошибка создания события с точками", "error", err, "event_id", eventID)
-		return nil, err
-	}
-
-	// Добавляем владельца как участника (approved_by_owner = true, approved_by_user = false)
-	participant := &models.Participant{
-		InviteID:        uuid.New(),
-		EventID:         eventID,
-		UserID:          userID,
-		Role:            "owner",
-		ApprovedByOwner: true,
-		ApprovedByUser:  true,
-	}
-	if err := s.participantRepo.Add(ctx, participant); err != nil {
-		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
-	}
-
-	// Обрабатываем приглашения
-	participants := []uuid.UUID{userID}
-	if req.IsGroup && len(req.InvitedEmails) > 0 {
-		for _, email := range req.InvitedEmails {
-			// Проверяем, существует ли пользователь
-			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
-			if err != nil {
-				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
-				continue
-			}
-
-			var invite *models.Participant
-
-			if userInfo != nil {
-				// Пользователь уже зарегистрирован
-				invite = &models.Participant{
-					InviteID:        uuid.New(),
-					EventID:         eventID,
-					UserID:          userInfo.UserID,
-					Role:            "member",
-					ApprovedByOwner: true,
-					ApprovedByUser:  false,
-					InvitedEmail:    "",
-				}
-				participants = append(participants, userInfo.UserID)
-				s.log.Trace("CreateEvent: пользователь найден, создаём приглашение", "event_id", eventID, "user_id", userInfo.UserID, "email", email)
-			} else {
-				// Пользователь не зарегистрирован
-				invite = &models.Participant{
-					InviteID:        uuid.New(),
-					EventID:         eventID,
-					UserID:          uuid.Nil,
-					Role:            "member",
-					ApprovedByOwner: true,
-					ApprovedByUser:  false,
-					InvitedEmail:    email,
-				}
-				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение", "event_id", eventID, "email", email)
-			}
-
-			if err := s.participantRepo.Add(ctx, invite); err != nil {
-				s.log.Error("CreateEvent: ошибка создания", "error", err, "email", email)
-			}
-		}
-	}
-
-	// Публикуем событие
-	if err := s.producer.PublishEventCreated(ctx, eventID, req.RouteID, userID, req.Title, req.StartDate, endDate, participants); err != nil {
-		s.log.Error("CreateEvent: ошибка публикации события", "error", err, "event_id", eventID)
-	}
-
-	s.log.Info("CreateEvent: поездка создана", "event_id", eventID, "user_id", userID)
-
-	return &models.EventWithDetails{
-		Event:        *event,
-		Participants: []models.Participant{*participant},
-		Waypoints:    waypoints,
-	}, nil
-}
-
 // GetEventByID получает поездку по ID
 func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID, userID *uuid.UUID) (*models.EventWithDetails, error) {
 	s.log.Debug("GetEventByID: начало", "event_id", eventID, "user_id", userID)
@@ -358,50 +234,6 @@ func (s *EventService) DeleteEvent(ctx context.Context, eventID, userID uuid.UUI
 	return nil
 }
 
-// JoinEvent запрос на участие в поездке (пользователь подаёт заявку)
-func (s *EventService) JoinEvent(ctx context.Context, eventID, userID uuid.UUID) error {
-	s.log.Debug("JoinEvent: начало", "event_id", eventID, "user_id", userID)
-
-	// Проверяем существование события
-	exists, err := s.eventRepo.Exists(ctx, eventID)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return ErrEventNotFound
-	}
-
-	// Проверяем, не участник ли уже
-	isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, userID)
-	if err != nil {
-		return err
-	}
-	if isParticipant {
-		return ErrAlreadyParticipant
-	}
-
-	// Проверяем, есть ли уже запись (например, приглашение)
-	existing, err := s.participantRepo.GetByUserAndEvent(ctx, eventID, userID)
-	if err != nil {
-		return err
-	}
-	if existing != nil {
-		// Если уже есть запись, обновляем флаг approved_by_user = true
-		return s.participantRepo.UpdateApproval(ctx, eventID, userID, existing.ApprovedByOwner, true)
-	}
-
-	// Добавляем участника с approved_by_owner = false, approved_by_user = true
-	participant := &models.Participant{
-		InviteID:        uuid.New(),
-		EventID:         eventID,
-		UserID:          userID,
-		Role:            "member",
-		ApprovedByOwner: false,
-		ApprovedByUser:  true,
-	}
-	return s.participantRepo.Add(ctx, participant)
-}
-
 // LeaveEvent выход из поездки
 func (s *EventService) LeaveEvent(ctx context.Context, eventID, userID uuid.UUID) error {
 	s.log.Debug("LeaveEvent: начало", "event_id", eventID, "user_id", userID)
@@ -440,8 +272,20 @@ func (s *EventService) AcceptParticipant(ctx context.Context, eventID, ownerID, 
 		return errors.New("participant not found")
 	}
 
-	// Обновляем approved_by_owner = true
-	return s.participantRepo.UpdateApproval(ctx, participant.InviteID, true, participant.ApprovedByUser)
+	// Проверяем, что это заявка (approved_by_owner = false, approved_by_user = true)
+	if participant.ApprovedByUser == nil {
+		return errors.New("this is an invitation, not a join request")
+	}
+	if participant.ApprovedByOwner {
+		return errors.New("participant already approved")
+	}
+	if !*participant.ApprovedByUser {
+		return errors.New("participant has not confirmed yet")
+	}
+
+	// Обновляем approved_by_owner = true, approved_by_user оставляем как есть (nil)
+	approvedTrue := true
+	return s.participantRepo.UpdateApproval(ctx, participant.InviteID, &approvedTrue, nil)
 }
 
 // DeclineParticipant владелец отклоняет участника
@@ -464,147 +308,6 @@ func (s *EventService) DeclineParticipant(ctx context.Context, eventID, ownerID,
 func (s *EventService) GetParticipants(ctx context.Context, eventID uuid.UUID) ([]models.Participant, error) {
 	s.log.Debug("GetParticipants: начало", "event_id", eventID)
 	return s.participantRepo.GetByEventID(ctx, eventID)
-}
-
-// GetInvites получает приглашения пользователя (где approved_by_owner = true, approved_by_user = false)
-func (s *EventService) GetInvites(ctx context.Context, email string) ([]models.Invite, error) {
-	s.log.Warn("GetInvites: начало получения приглашений по ", "email", email)
-	return s.participantRepo.GetInvitesByEmail(ctx, email)
-}
-
-// AcceptInvite пользователь принимает приглашение по invite_id
-func (s *EventService) AcceptInvite(ctx context.Context, inviteID, userID uuid.UUID) error {
-	s.log.Debug("AcceptInvite: начало", "invite_id", inviteID, "user_id", userID)
-
-	// Получаем приглашение по invite_id
-	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
-	if err != nil {
-		return err
-	}
-	if participant == nil {
-		return ErrInviteNotFound
-	}
-
-	// Проверяем, что приглашение предназначено этому пользователю
-	if participant.UserID != userID {
-		s.log.Warn("AcceptInvite: приглашение не принадлежит пользователю",
-			"invite_id", inviteID,
-			"expected_user", participant.UserID,
-			"actual_user", userID)
-		return ErrInviteNotFound
-	}
-
-	// Проверяем, что владелец подтвердил
-	if !participant.ApprovedByOwner {
-		return errors.New("invitation not approved by owner")
-	}
-
-	// Проверяем, что пользователь еще не подтвердил
-	if participant.ApprovedByUser {
-		return ErrInviteAlreadyProcessed
-	}
-
-	// Обновляем approved_by_user = true
-	return s.participantRepo.UpdateApproval(ctx, participant.EventID, userID, participant.ApprovedByOwner, true)
-}
-
-// DeclineInvite пользователь отклоняет приглашение по invite_id
-func (s *EventService) DeclineInvite(ctx context.Context, inviteID, userID uuid.UUID) error {
-	s.log.Debug("DeclineInvite: начало", "invite_id", inviteID, "user_id", userID)
-
-	// Получаем приглашение по invite_id
-	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
-	if err != nil {
-		return err
-	}
-	if participant == nil {
-		return ErrInviteNotFound
-	}
-
-	// Проверяем, что приглашение предназначено этому пользователю
-	if participant.UserID != userID {
-		s.log.Warn("DeclineInvite: приглашение не принадлежит пользователю",
-			"invite_id", inviteID,
-			"expected_user", participant.UserID,
-			"actual_user", userID)
-		return ErrInviteNotFound
-	}
-
-	// Проверяем, что пользователь еще не подтвердил
-	if participant.ApprovedByUser {
-		return ErrInviteAlreadyProcessed
-	}
-
-	// Удаляем запись
-	return s.participantRepo.Remove(ctx, participant.EventID, userID)
-}
-
-// InviteParticipants владелец приглашает новых участников после создания поездки
-func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID uuid.UUID, emails []string) error {
-	s.log.Debug("InviteParticipants: начало", "event_id", eventID, "owner_id", ownerID, "emails", emails)
-
-	// Проверяем права
-	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, ownerID)
-	if err != nil {
-		return err
-	}
-	if !isOwner {
-		return ErrNotOwner
-	}
-
-	// Проверяем, что поездка ещё не началась
-	event, err := s.eventRepo.GetByID(ctx, eventID)
-	if err != nil {
-		return err
-	}
-	if event == nil {
-		return ErrEventNotFound
-	}
-	if event.StartDate.Before(time.Now()) {
-		return errors.New("cannot invite to event that has already started")
-	}
-
-	for _, email := range emails {
-		// Проверяем, существует ли пользователь
-		userInfo, err := s.authClient.GetUserByEmail(ctx, email)
-		if err != nil {
-			s.log.Error("InviteParticipants: ошибка проверки пользователя", "error", err, "email", email)
-			continue
-		}
-
-		var participant *models.Participant
-
-		if userInfo != nil {
-			// Пользователь уже зарегистрирован
-			participant = &models.Participant{
-				InviteID:        uuid.New(),
-				EventID:         eventID,
-				UserID:          userInfo.UserID,
-				Role:            "member",
-				ApprovedByOwner: true,
-				ApprovedByUser:  false,
-			}
-		} else {
-			// Пользователь не зарегистрирован
-			participant = &models.Participant{
-				InviteID:        uuid.New(),
-				EventID:         eventID,
-				UserID:          uuid.Nil,
-				Role:            "member",
-				ApprovedByOwner: true,
-				ApprovedByUser:  false,
-				InvitedEmail:    email,
-			}
-		}
-
-		if err := s.participantRepo.Add(ctx, participant); err != nil {
-			s.log.Error("InviteParticipants: ошибка создания", "error", err, "email", email)
-		} else {
-			s.log.Info("InviteParticipants: приглашение создано", "event_id", eventID, "email", email)
-		}
-	}
-
-	return nil
 }
 
 // GetWaypoints получает точки маршрута
@@ -960,7 +663,333 @@ func (s *EventService) GetUserEmail(ctx context.Context, userID uuid.UUID) (stri
 	return s.authClient.GetUserEmail(ctx, userID)
 }
 
-// GetInvitesByUserID получает приглашения пользователя (approved_by_owner = true, approved_by_user = false)
+// CreateEvent создаёт новую поездку
+func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *models.CreateEventRequest) (*models.EventWithDetails, error) {
+	s.log.Debug("CreateEvent: начало", "user_id", userID, "route_id", req.RouteID, "title", req.Title, "start_date", req.StartDate)
+
+	// Проверяем дату начала
+	if req.StartDate.Before(time.Now()) {
+		s.log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
+		return nil, ErrInvalidStartDate
+	}
+
+	// Получаем маршрут из Route Service
+	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, req.RouteID.String())
+	if err != nil {
+		s.log.Error("CreateEvent: ошибка получения маршрута", "error", err, "route_id", req.RouteID)
+		return nil, fmt.Errorf("failed to get route: %w", err)
+	}
+
+	// Создаём ID события
+	eventID := uuid.New()
+	now := time.Now()
+
+	// Рассчитываем даты точек
+	waypoints := s.calculateWaypointDates(routeData.Waypoints, req.StartDate, eventID)
+
+	// Вычисляем дату окончания
+	endDate := req.StartDate
+	if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
+		endDate = *waypoints[len(waypoints)-1].PlannedEnd
+	}
+
+	// Создаём событие
+	event := &models.Event{
+		ID:          eventID,
+		RouteID:     req.RouteID,
+		Title:       req.Title,
+		Description: req.Description,
+		OwnerID:     userID,
+		StartDate:   req.StartDate,
+		EndDate:     endDate,
+		IsGroup:     req.IsGroup,
+		Status:      "planned",
+		IsPublic:    false,
+		CreatedAt:   now,
+	}
+
+	// Создаём событие и точки в одной транзакции
+	if err := s.eventRepo.CreateWithWaypoints(ctx, event, waypoints); err != nil {
+		s.log.Error("CreateEvent: ошибка создания события с точками", "error", err, "event_id", eventID)
+		return nil, err
+	}
+
+	// Добавляем владельца: approved_by_owner = true, approved_by_user = true
+	approvedTrue := true
+	participant := &models.Participant{
+		InviteID:        uuid.New(),
+		EventID:         eventID,
+		UserID:          userID,
+		Role:            "owner",
+		ApprovedByOwner: true,
+		ApprovedByUser:  &approvedTrue,
+	}
+	if err := s.participantRepo.Add(ctx, participant); err != nil {
+		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
+	}
+
+	// Обрабатываем приглашения
+	participants := []uuid.UUID{userID}
+	if req.IsGroup && len(req.InvitedEmails) > 0 {
+		for _, email := range req.InvitedEmails {
+			// Проверяем, существует ли пользователь
+			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
+			if err != nil {
+				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
+				continue
+			}
+
+			var invite *models.Participant
+
+			if userInfo != nil {
+				// Пользователь уже зарегистрирован
+				invite = &models.Participant{
+					InviteID:        uuid.New(),
+					EventID:         eventID,
+					UserID:          userInfo.UserID,
+					Role:            "member",
+					ApprovedByOwner: true,
+					ApprovedByUser:  nil, // null = приглашение
+					InvitedEmail:    "",
+				}
+				participants = append(participants, userInfo.UserID)
+				s.log.Trace("CreateEvent: пользователь найден, создаём приглашение", "event_id", eventID, "user_id", userInfo.UserID, "email", email)
+			} else {
+				// Пользователь не зарегистрирован
+				invite = &models.Participant{
+					InviteID:        uuid.New(),
+					EventID:         eventID,
+					UserID:          uuid.Nil,
+					Role:            "member",
+					ApprovedByOwner: true,
+					ApprovedByUser:  nil, // null = приглашение
+					InvitedEmail:    email,
+				}
+				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение", "event_id", eventID, "email", email)
+			}
+
+			if err := s.participantRepo.Add(ctx, invite); err != nil {
+				s.log.Error("CreateEvent: ошибка создания", "error", err, "email", email)
+			}
+		}
+	}
+
+	// Публикуем событие
+	if err := s.producer.PublishEventCreated(ctx, eventID, req.RouteID, userID, req.Title, req.StartDate, endDate, participants); err != nil {
+		s.log.Error("CreateEvent: ошибка публикации события", "error", err, "event_id", eventID)
+	}
+
+	s.log.Info("CreateEvent: поездка создана", "event_id", eventID, "user_id", userID)
+
+	return &models.EventWithDetails{
+		Event:        *event,
+		Participants: []models.Participant{*participant},
+		Waypoints:    waypoints,
+	}, nil
+}
+
+// JoinEvent запрос на участие в поездке (пользователь подаёт заявку)
+func (s *EventService) JoinEvent(ctx context.Context, eventID, userID uuid.UUID) error {
+	s.log.Debug("JoinEvent: начало", "event_id", eventID, "user_id", userID)
+
+	// Проверяем существование события
+	exists, err := s.eventRepo.Exists(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrEventNotFound
+	}
+
+	// Проверяем, не участник ли уже
+	isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, userID)
+	if err != nil {
+		return err
+	}
+	if isParticipant {
+		return ErrAlreadyParticipant
+	}
+
+	// Проверяем, есть ли уже запись (например, приглашение)
+	existing, err := s.participantRepo.GetByUserAndEvent(ctx, eventID, userID)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		// Если уже есть приглашение (approved_by_user == nil, approved_by_owner == true)
+		if existing.ApprovedByUser == nil && existing.ApprovedByOwner {
+			// Пользователь получил приглашение и теперь принимает его
+			// Нужно: approved_by_owner оставить true, approved_by_user поставить true
+			approvedTrue := true
+			return s.participantRepo.UpdateApproval(ctx, existing.InviteID, nil, &approvedTrue)
+		}
+
+		// Если уже есть заявка (approved_by_owner == false, approved_by_user == true)
+		if existing.ApprovedByUser != nil && *existing.ApprovedByUser && !existing.ApprovedByOwner {
+			// Пользователь уже подал заявку, ничего не делаем
+			s.log.Debug("JoinEvent: пользователь уже подал заявку", "event_id", eventID, "user_id", userID)
+			return nil
+		}
+
+		// Если запись в другом статусе — ошибка
+		return errors.New("participant record exists in unexpected state")
+	}
+
+	// Добавляем участника с approved_by_owner = false, approved_by_user = true
+	approvedTrue := true
+	participant := &models.Participant{
+		InviteID:        uuid.New(),
+		EventID:         eventID,
+		UserID:          userID,
+		Role:            "member",
+		ApprovedByOwner: false,
+		ApprovedByUser:  &approvedTrue,
+	}
+	return s.participantRepo.Add(ctx, participant)
+}
+
+// AcceptInvite пользователь принимает приглашение по invite_id
+func (s *EventService) AcceptInvite(ctx context.Context, inviteID, userID uuid.UUID) error {
+	s.log.Debug("AcceptInvite: начало", "invite_id", inviteID, "user_id", userID)
+
+	// Получаем приглашение по invite_id
+	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
+	if err != nil {
+		return err
+	}
+	if participant == nil {
+		return ErrInviteNotFound
+	}
+
+	// Проверяем, что приглашение предназначено этому пользователю
+	if participant.UserID != userID {
+		s.log.Warn("AcceptInvite: приглашение не принадлежит пользователю",
+			"invite_id", inviteID,
+			"expected_user", participant.UserID,
+			"actual_user", userID)
+		return ErrInviteNotFound
+	}
+
+	// Проверяем, что владелец подтвердил
+	if !participant.ApprovedByOwner {
+		return errors.New("invitation not approved by owner")
+	}
+
+	// Проверяем, что это приглашение (approved_by_user == nil)
+	if participant.ApprovedByUser != nil {
+		return ErrInviteAlreadyProcessed
+	}
+
+	// Обновляем approved_by_user = true
+	approvedTrue := true
+	return s.participantRepo.UpdateApproval(ctx, inviteID, nil, &approvedTrue)
+}
+
+// DeclineInvite пользователь отклоняет приглашение по invite_id
+func (s *EventService) DeclineInvite(ctx context.Context, inviteID, userID uuid.UUID) error {
+	s.log.Debug("DeclineInvite: начало", "invite_id", inviteID, "user_id", userID)
+
+	// Получаем приглашение по invite_id
+	participant, err := s.participantRepo.GetByInviteID(ctx, inviteID)
+	if err != nil {
+		return err
+	}
+	if participant == nil {
+		return ErrInviteNotFound
+	}
+
+	// Проверяем, что приглашение предназначено этому пользователю
+	if participant.UserID != userID {
+		s.log.Warn("DeclineInvite: приглашение не принадлежит пользователю",
+			"invite_id", inviteID,
+			"expected_user", participant.UserID,
+			"actual_user", userID)
+		return ErrInviteNotFound
+	}
+
+	// Проверяем, что это приглашение (approved_by_user == nil)
+	if participant.ApprovedByUser != nil {
+		return ErrInviteAlreadyProcessed
+	}
+
+	// Удаляем запись (отклонение)
+	return s.participantRepo.Remove(ctx, participant.EventID, userID)
+}
+
+// InviteParticipants владелец приглашает новых участников после создания поездки
+func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID uuid.UUID, emails []string) error {
+	s.log.Debug("InviteParticipants: начало", "event_id", eventID, "owner_id", ownerID, "emails", emails)
+
+	// Проверяем права
+	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, ownerID)
+	if err != nil {
+		return err
+	}
+	if !isOwner {
+		return ErrNotOwner
+	}
+
+	// Проверяем, что поездка ещё не началась
+	event, err := s.eventRepo.GetByID(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	if event == nil {
+		return ErrEventNotFound
+	}
+	if event.StartDate.Before(time.Now()) {
+		return errors.New("cannot invite to event that has already started")
+	}
+
+	for _, email := range emails {
+		// Проверяем, не пытается ли владелец пригласить себя
+		userInfo, err := s.authClient.GetUserByEmail(ctx, email)
+		if err != nil {
+			s.log.Error("InviteParticipants: ошибка проверки пользователя", "error", err, "email", email)
+			continue
+		}
+
+		if userInfo != nil && userInfo.UserID == ownerID {
+			s.log.Debug("InviteParticipants: владелец пытается пригласить себя, пропускаем", "email", email)
+			continue
+		}
+
+		var participant *models.Participant
+
+		if userInfo != nil {
+			// Пользователь уже зарегистрирован
+			participant = &models.Participant{
+				InviteID:        uuid.New(),
+				EventID:         eventID,
+				UserID:          userInfo.UserID,
+				Role:            "member",
+				ApprovedByOwner: true,
+				ApprovedByUser:  nil, // null = приглашение
+			}
+		} else {
+			// Пользователь не зарегистрирован
+			participant = &models.Participant{
+				InviteID:        uuid.New(),
+				EventID:         eventID,
+				UserID:          uuid.Nil,
+				Role:            "member",
+				ApprovedByOwner: true,
+				ApprovedByUser:  nil, // null = приглашение
+				InvitedEmail:    email,
+			}
+		}
+
+		if err := s.participantRepo.Add(ctx, participant); err != nil {
+			s.log.Error("InviteParticipants: ошибка создания", "error", err, "email", email)
+		} else {
+			s.log.Info("InviteParticipants: приглашение создано", "event_id", eventID, "email", email)
+		}
+	}
+
+	return nil
+}
+
+// GetInvitesByUserID получает приглашения пользователя (approved_by_owner = true AND approved_by_user IS NULL)
 func (s *EventService) GetInvitesByUserID(ctx context.Context, userID uuid.UUID) ([]models.Invite, error) {
 	s.log.Debug("GetInvitesByUserID: начало", "user_id", userID)
 	return s.participantRepo.GetInvitesByUserID(ctx, userID)

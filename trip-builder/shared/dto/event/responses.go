@@ -34,7 +34,7 @@ type ParticipantResponse struct {
 	UserID          uuid.UUID `json:"user_id"`
 	Role            string    `json:"role"`
 	ApprovedByOwner bool      `json:"approved_by_owner"`
-	ApprovedByUser  bool      `json:"approved_by_user"`
+	ApprovedByUser  *bool     `json:"approved_by_user"` // null = приглашение, true/false = принято/отклонено
 	InvitedEmail    string    `json:"invited_email,omitempty"`
 	JoinedAt        time.Time `json:"joined_at"`
 }

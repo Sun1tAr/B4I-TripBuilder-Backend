@@ -8,7 +8,6 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
 	authdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/auth"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
-	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -104,26 +103,19 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 		"email", data.Email,
 	)
 
-	// Ищем приглашения с этим email
-	// Для этого нужно пройтись по всем событиям, где есть приглашение с этим email
-	// Это неэффективно, но пока подойдёт. В будущем можно добавить индекс по invited_email
-	if err := c.linkInvitationsByEmail(ctx, data.UserID, data.Email); err != nil {
-		log.Error("Ошибка связывания приглашений", "error", err, "user_id", data.UserID, "email", data.Email)
+	// Находим все приглашения с этим email
+	invites, err := c.participantRepo.FindByInvitedEmail(ctx, data.Email)
+	if err != nil {
+		log.Error("Ошибка поиска приглашений по email", "error", err, "email", data.Email)
+		return
 	}
-}
 
-// linkInvitationsByEmail находит все приглашения с указанным email и связывает с пользователем
-func (c *UserCreatedConsumer) linkInvitationsByEmail(ctx context.Context, userID uuid.UUID, email string) error {
-	// Получаем все события, где есть приглашение с этим email
-	// Для этого нужен метод в репозитории, который ищет по invited_email
-	// Пока реализуем простой вариант — обновляем напрямую через репозиторий
-
-	// Используем существующий метод LinkInvitedParticipant
-	// Он обновляет запись с invited_email = email на user_id = userID
-	// Но нужно знать event_id. У нас его нет, поэтому нужно сначала найти event_id
-	// Это требует доработки репозитория
-
-	// Временное решение: добавим метод в репозиторий для поиска и обновления по email
-	// Вызываем метод, который найдёт все записи с invited_email = email и обновит их
-	return c.participantRepo.LinkAllInvitationsByEmail(ctx, userID, email)
+	// Связываем каждое приглашение с пользователем
+	for _, invite := range invites {
+		if err := c.participantRepo.LinkInvitation(ctx, invite.InviteID, data.UserID); err != nil {
+			log.Error("Ошибка связывания приглашения", "error", err, "invite_id", invite.InviteID, "user_id", data.UserID)
+		} else {
+			log.Info("Приглашение связано с пользователем", "invite_id", invite.InviteID, "user_id", data.UserID, "email", data.Email)
+		}
+	}
 }
