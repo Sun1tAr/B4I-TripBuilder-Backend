@@ -746,7 +746,7 @@ func (h *EventHandler) GetInvites(w http.ResponseWriter, r *http.Request) {
 			EventEndDate:      inv.EventEndDate,
 			EventOwnerID:      inv.EventOwnerID,
 			ParticipantsCount: inv.ParticipantsCount,
-			InvitedBy:         inv.InvitedBy,
+			UserID:            inv.UserID,
 			InvitedAt:         inv.InvitedAt,
 		}
 		if inv.EventDescription != "" {

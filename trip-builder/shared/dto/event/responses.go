@@ -116,6 +116,6 @@ type InviteResponse struct {
 	EventEndDate      time.Time `json:"event_end_date"`
 	EventOwnerID      uuid.UUID `json:"event_owner_id"`
 	ParticipantsCount int       `json:"participants_count"`
-	InvitedBy         uuid.UUID `json:"invited_by"`
+	UserID            uuid.UUID `json:"user_id"`
 	InvitedAt         time.Time `json:"invited_at"`
 }

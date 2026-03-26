@@ -79,16 +79,29 @@ func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID, user
 
 	// Проверяем права доступа
 	if !event.IsPublic {
+		// Если пользователь не авторизован — доступ запрещен
 		if userID == nil {
+			s.log.Debug("GetEventByID: доступ запрещен, пользователь не авторизован", "event_id", eventID)
 			return nil, ErrEventNotFound
 		}
-		isParticipant, err := s.participantRepo.IsParticipant(ctx, eventID, *userID)
+
+		// Проверяем, есть ли у пользователя какая-либо связь с событием
+		participant, err := s.participantRepo.GetByUserAndEvent(ctx, eventID, *userID)
 		if err != nil {
+			s.log.Error("GetEventByID: ошибка проверки участника", "error", err, "event_id", eventID, "user_id", userID)
 			return nil, err
 		}
-		if !isParticipant {
+
+		// Нет никакой записи — доступ запрещен
+		if participant == nil {
+			s.log.Debug("GetEventByID: доступ запрещен, пользователь не связан с событием", "event_id", eventID, "user_id", userID)
 			return nil, ErrEventNotFound
 		}
+
+		// Запись есть — доступ разрешен (активный участник, приглашение или заявка)
+		s.log.Debug("GetEventByID: доступ разрешен", "event_id", eventID, "user_id", userID,
+			"approved_by_owner", participant.ApprovedByOwner,
+			"approved_by_user", participant.ApprovedByUser)
 	}
 
 	// Получаем участников

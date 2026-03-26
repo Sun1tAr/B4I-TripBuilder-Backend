@@ -222,7 +222,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 				  AND p2.approved_by_owner = true 
 				  AND p2.approved_by_user = true
 			), 0) as participants_count,
-			p.user_id as invited_by,
+			p.user_id as user_id,  -- ← переименовано
 			p.joined_at as invited_at
 		FROM %s p
 		JOIN %s e ON p.event_id = e.id
@@ -243,7 +243,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 	for rows.Next() {
 		var invite models.Invite
 		var description sql.NullString
-		var invitedBy uuid.UUID
+		var userID uuid.UUID
 
 		err := rows.Scan(
 			&invite.InviteID,
@@ -254,7 +254,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 			&invite.EventEndDate,
 			&invite.EventOwnerID,
 			&invite.ParticipantsCount,
-			&invitedBy,
+			&userID,
 			&invite.InvitedAt,
 		)
 		if err != nil {
@@ -265,7 +265,7 @@ func (r *ParticipantRepository) GetInvitesByUserID(ctx context.Context, userID u
 		if description.Valid {
 			invite.EventDescription = description.String
 		}
-		invite.InvitedBy = invitedBy
+		invite.UserID = userID
 
 		invites = append(invites, invite)
 	}
