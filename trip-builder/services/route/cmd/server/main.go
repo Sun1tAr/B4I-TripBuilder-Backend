@@ -91,10 +91,19 @@ func main() {
 	// API роутер с префиксом /api/v1/routes
 	api := r.PathPrefix("/api/v1/routes").Subrouter()
 
+	// Публичные маршруты (тоже конкретные перед общими)
+	public := api.PathPrefix("").Subrouter()
+
+	public.HandleFunc("/popular", routeHandler.GetPopularRoutes).Methods("GET")
+	public.HandleFunc("/tags", routeHandler.GetAllTags).Methods("GET")
+	public.HandleFunc("/tag/{tag}", routeHandler.GetRoutesByTag).Methods("GET")
+	public.HandleFunc("", routeHandler.GetPublicRoutes).Methods("GET")
+
 	// Они могут работать с userID = nil, что означает анонимный доступ
 	// Защищённые маршруты (более конкретные - сначала)
 	protected := api.PathPrefix("").Subrouter()
 	protected.Use(middleware.Auth(log))
+
 	protected.HandleFunc("/my", routeHandler.GetMyRoutes).Methods("GET")
 	protected.HandleFunc("", routeHandler.CreateRoute).Methods("POST")
 	protected.HandleFunc("/{id}/like", routeHandler.ToggleLike).Methods("POST")
@@ -102,13 +111,6 @@ func main() {
 	protected.HandleFunc("/{id}", routeHandler.GetRouteByID).Methods("GET")
 	protected.HandleFunc("/{id}", routeHandler.UpdateRoute).Methods("PUT")
 	protected.HandleFunc("/{id}", routeHandler.DeleteRoute).Methods("DELETE")
-
-	// Публичные маршруты (тоже конкретные перед общими)
-	public := api.PathPrefix("").Subrouter()
-	public.HandleFunc("/popular", routeHandler.GetPopularRoutes).Methods("GET")
-	public.HandleFunc("/tags", routeHandler.GetAllTags).Methods("GET")
-	public.HandleFunc("/tag/{tag}", routeHandler.GetRoutesByTag).Methods("GET")
-	public.HandleFunc("", routeHandler.GetPublicRoutes).Methods("GET")
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)
