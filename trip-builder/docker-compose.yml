@@ -160,6 +160,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  task:
+    build:
+      context: services/task/
+      dockerfile: Dockerfile
+    image: ${TASK_IMAGE:-trip-builder-task:local}
+    container_name: ${TASK_CONTAINER_NAME:-trip-builder-backend-task}
+    env_file:
+      - services/task/.env
+    ports:
+      - "${TASK_PORT:-8085}:8085"
+    networks:
+      - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge

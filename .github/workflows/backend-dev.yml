@@ -39,7 +39,7 @@ jobs:
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       # jDoc сервисы
-      services: '["auth", "user", "gateway", "route", "event"]'
+      services: '["auth", "user", "gateway", "route", "event", "task"]'
 
       auth_port: 9101
       auth_container_name: trip-builder-backend-auth-dev
@@ -68,7 +68,7 @@ jobs:
       kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
         "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
         , "route.updated", "route.deleted",
-        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited"]'
+        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited", "task.completed"]'
 
       route_port: 9103
       route_container_name: trip-builder-backend-route-dev
@@ -76,6 +76,8 @@ jobs:
       event_port: 9104
       event_container_name: trip-builder-backend-event-dev
 
+      task_port: 9105
+      task_container_name: trip-builder-backend-task-dev
 
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}

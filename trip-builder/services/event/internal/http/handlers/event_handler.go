@@ -1270,3 +1270,65 @@ func (h *EventHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "comment deleted successfully"})
 }
+
+// CheckOwner проверяет, является ли пользователь владельцем события
+func (h *EventHandler) CheckOwner(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	eventIDStr := vars["id"]
+	userIDStr := r.URL.Query().Get("user_id")
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		log.Debug("CheckOwner: неверный ID события", "event_id", eventIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Debug("CheckOwner: неверный ID пользователя", "user_id", userIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid user id", "")
+		return
+	}
+
+	isOwner, err := h.eventService.IsEventOwner(r.Context(), eventID, userID)
+	if err != nil {
+		log.Error("CheckOwner: ошибка проверки", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]bool{"is_owner": isOwner})
+}
+
+// CheckParticipant проверяет, является ли пользователь активным участником события
+func (h *EventHandler) CheckParticipant(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	eventIDStr := vars["id"]
+	userIDStr := r.URL.Query().Get("user_id")
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		log.Debug("CheckParticipant: неверный ID события", "event_id", eventIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Debug("CheckParticipant: неверный ID пользователя", "user_id", userIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid user id", "")
+		return
+	}
+
+	isParticipant, err := h.eventService.IsEventParticipant(r.Context(), eventID, userID)
+	if err != nil {
+		log.Error("CheckParticipant: ошибка проверки", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]bool{"is_participant": isParticipant})
+}

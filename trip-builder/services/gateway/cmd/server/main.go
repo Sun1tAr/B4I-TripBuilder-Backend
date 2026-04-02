@@ -106,10 +106,12 @@ func main() {
 
 	// Tasks
 	protected.HandleFunc("/tasks", handlers.Proxy(cfg, "task")).Methods("GET")
-	protected.HandleFunc("/tasks/{id}/comments", handlers.Proxy(cfg, "task")).Methods("POST")
-	protected.HandleFunc("/tasks/{id}/assign", handlers.Proxy(cfg, "task")).Methods("POST")
-	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("GET")
 	protected.HandleFunc("/tasks", handlers.Proxy(cfg, "task")).Methods("POST")
+	protected.HandleFunc("/tasks/templates", handlers.Proxy(cfg, "task")).Methods("GET")
+	protected.HandleFunc("/tasks/{id}/approve", handlers.Proxy(cfg, "task")).Methods("POST")
+	protected.HandleFunc("/tasks/{id}/comments", handlers.Proxy(cfg, "task")).Methods("POST")
+	protected.HandleFunc("/tasks/{id}/comments", handlers.Proxy(cfg, "task")).Methods("GET")
+	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("GET")
 	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("PUT")
 	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("DELETE")
 

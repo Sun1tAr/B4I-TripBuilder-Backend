@@ -135,6 +135,15 @@ on:
         required: true
         type: string
 
+      task_port:
+        description: 'Task service port'
+        required: true
+        type: string
+      task_container_name:
+        description: 'Task container name'
+        required: true
+        type: string
+
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
@@ -345,6 +354,9 @@ jobs:
           EVENT_PORT=${{ inputs.event_port }}
           EVENT_CONTAINER_NAME=${{ inputs.event_container_name }}
           EVENT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/event:$HUMAN_TAG
+          TASK_PORT=${{ inputs.task_port }}
+          TASK_CONTAINER_NAME=${{ inputs.task_container_name }}
+          TASK_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/task:$HUMAN_TAG
           EOF"
 
       - name: Login to GHCR on server
