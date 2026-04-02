@@ -27,5 +27,10 @@ cd ..\event
 go mod tidy
 go mod vendor
 
+Write-Host "Update Task" -ForegroundColor Green
+cd ..\task
+go mod tidy
+go mod vendor
+
 Write-Host "Back road" -ForegroundColor Green
 cd ..\..\..\.scripts
