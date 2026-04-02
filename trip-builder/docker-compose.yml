@@ -164,12 +164,12 @@ services:
     build:
       context: services/task/
       dockerfile: Dockerfile
-    image: ${TASK_IMAGE:-trip-builder-task:local} # fixme
-    container_name: ${TASK_CONTAINER_NAME:-trip-builder-backend-task}  # fixme
+    image: ${TASK_IMAGE:-trip-builder-task:local}
+    container_name: ${TASK_CONTAINER_NAME:-trip-builder-backend-task}
     env_file:
       - services/task/.env
     ports:
-      - "${TASK_PORT:-8085}:8085"   # fixme
+      - "${TASK_PORT:-8085}:8085"
     networks:
       - trip-builder-network
     depends_on:
