@@ -47,12 +47,3 @@ CREATE TABLE IF NOT EXISTS task_comments (
 
 -- Индекс для комментариев
 CREATE INDEX IF NOT EXISTS idx_task_comments_task_id ON task_comments(task_id);
-
--- Начальные шаблоны задач
-INSERT INTO task_templates (id, title, description, trigger_days, priority) VALUES
-                                                                                (gen_random_uuid(), 'Забронировать отель', 'Забронировать отель в первом городе маршрута', -7, 'high'),
-                                                                                (gen_random_uuid(), 'Купить билеты', 'Купить билеты на самолет/поезд', -14, 'high'),
-                                                                                (gen_random_uuid(), 'Собрать документы', 'Проверить наличие загранпаспорта, виз', -30, 'medium'),
-                                                                                (gen_random_uuid(), 'Скачать карты', 'Скачать офлайн-карты городов', -3, 'low'),
-                                                                                (gen_random_uuid(), 'Чек-лист вещей', 'Составить список необходимых вещей', -7, 'medium'),
-                                                                                (gen_random_uuid(), 'Обмен валюты', 'Обменять валюту', -5, 'low');
