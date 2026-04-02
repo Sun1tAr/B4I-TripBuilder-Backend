@@ -140,6 +140,7 @@ func main() {
 	api.HandleFunc("", taskHandler.CreateTask).Methods("POST")
 	api.HandleFunc("/templates", taskHandler.GetTemplates).Methods("GET")
 	api.HandleFunc("/{id}/approve", taskHandler.ApproveTask).Methods("POST")
+	api.HandleFunc("/{id}/comments", taskHandler.GetComments).Methods("GET")
 	api.HandleFunc("/{id}/comments", taskHandler.AddComment).Methods("POST")
 	api.HandleFunc("/{id}", taskHandler.GetTaskByID).Methods("GET")
 	api.HandleFunc("/{id}", taskHandler.UpdateTask).Methods("PUT")

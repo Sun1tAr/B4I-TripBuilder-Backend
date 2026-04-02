@@ -78,6 +78,87 @@ func taskToResponse(task *models.Task) *taskdto.TaskResponse {
 	return resp
 }
 
+// GetComments возвращает комментарии к задаче
+func (h *TaskHandler) GetComments(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	taskIDStr := vars["id"]
+
+	taskID, err := uuid.Parse(taskIDStr)
+	if err != nil {
+		log.Debug("GetComments: неверный ID задачи", "task_id", taskIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid task id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	// Проверяем, что пользователь имеет доступ к задаче (участник события)
+	task, err := h.taskService.GetTaskByID(r.Context(), taskID, userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrTaskNotFound):
+			log.Debug("GetComments: задача не найдена", "task_id", taskID)
+			h.writeError(w, http.StatusNotFound, "task not found", "")
+		default:
+			log.Error("Ошибка получения задачи", "error", err, "task_id", taskID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+	if task == nil {
+		h.writeError(w, http.StatusNotFound, "task not found", "")
+		return
+	}
+
+	// Парсим пагинацию
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size < 1 || size > 1000 {
+		size = 1000
+	}
+
+	comments, total, err := h.taskService.GetComments(r.Context(), taskID, page, size)
+	if err != nil {
+		log.Error("Ошибка получения комментариев", "error", err, "task_id", taskID)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	items := make([]taskdto.TaskCommentResponse, len(comments))
+	for i, c := range comments {
+		items[i] = taskdto.TaskCommentResponse{
+			ID:        c.ID,
+			UserID:    c.UserID,
+			Text:      c.Text,
+			CreatedAt: c.CreatedAt,
+		}
+	}
+
+	totalPages := (int(total) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	response := map[string]interface{}{
+		"items":       items,
+		"total":       total,
+		"page":        page,
+		"size":        size,
+		"total_pages": totalPages,
+	}
+
+	log.Info("GetComments: комментарии получены", "task_id", taskID, "user_id", userID, "count", len(items))
+	h.writeJSON(w, http.StatusOK, response)
+}
+
 // GetTasks возвращает список задач
 func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
@@ -128,9 +209,30 @@ func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]taskdto.TaskResponse, len(tasks))
-	for i, task := range tasks {
-		items[i] = *taskToResponse(&task)
+	items := make([]taskdto.TaskResponse, 0, len(tasks))
+	for _, task := range tasks {
+		// Получаем количество комментариев для каждой задачи
+		commentsCount, _ := h.taskService.GetCommentsCount(r.Context(), task.ID)
+
+		item := taskdto.TaskResponse{
+			ID:              task.ID,
+			EventID:         task.EventID,
+			Title:           task.Title,
+			Description:     task.Description,
+			CreatedBy:       task.CreatedBy,
+			Priority:        task.Priority,
+			Status:          task.Status,
+			DueDate:         task.DueDate,
+			CompletedAt:     task.CompletedAt,
+			ApprovedByAdmin: task.ApprovedByAdmin,
+			CommentsCount:   commentsCount,
+			CreatedAt:       task.CreatedAt,
+			UpdatedAt:       task.UpdatedAt,
+		}
+		if task.AssignedTo != nil {
+			item.AssignedTo = task.AssignedTo
+		}
+		items = append(items, item)
 	}
 
 	totalPages := (int(total) + size - 1) / size

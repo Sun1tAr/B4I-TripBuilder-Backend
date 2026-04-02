@@ -22,6 +22,7 @@ type TaskRepository interface {
 type TaskCommentRepository interface {
 	Create(ctx context.Context, comment *models.TaskComment) error
 	GetByTaskID(ctx context.Context, taskID uuid.UUID, limit, offset int) ([]models.TaskComment, int64, error)
+	CountByTaskID(ctx context.Context, taskID uuid.UUID) (int64, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	IsAuthor(ctx context.Context, commentID, userID uuid.UUID) (bool, error)
 }

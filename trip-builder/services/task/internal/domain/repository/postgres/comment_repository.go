@@ -49,7 +49,7 @@ func (r *TaskCommentRepository) GetByTaskID(ctx context.Context, taskID uuid.UUI
 	query := fmt.Sprintf(`
 		SELECT id, task_id, user_id, text, created_at
 		FROM %s WHERE task_id = $1
-		ORDER BY created_at DESC
+		ORDER BY created_at ASC
 		LIMIT $2 OFFSET $3
 	`, r.table())
 
@@ -105,4 +105,16 @@ func (r *TaskCommentRepository) IsAuthor(ctx context.Context, commentID, userID 
 		return false, err
 	}
 	return exists, nil
+}
+
+// CountByTaskID возвращает количество комментариев у задачи
+func (r *TaskCommentRepository) CountByTaskID(ctx context.Context, taskID uuid.UUID) (int64, error) {
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE task_id = $1", r.table())
+	var count int64
+	err := r.db.QueryRowContext(ctx, query, taskID).Scan(&count)
+	if err != nil {
+		r.log.Error("TaskCommentRepository.CountByTaskID: ошибка подсчёта", "error", err, "task_id", taskID)
+		return 0, err
+	}
+	return count, nil
 }

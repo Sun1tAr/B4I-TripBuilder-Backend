@@ -50,6 +50,7 @@ type TaskResponse struct {
 	DueDate         *time.Time `json:"due_date,omitempty"`
 	CompletedAt     *time.Time `json:"completed_at,omitempty"`
 	ApprovedByAdmin bool       `json:"approved_by_admin"`
+	CommentsCount   int64      `json:"comments_count"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
 }

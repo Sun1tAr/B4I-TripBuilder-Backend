@@ -229,21 +229,30 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 		return nil, ErrTaskNotFound
 	}
 
-	// Проверяем права: админ или создатель
+	// Проверяем права
 	isOwner, err := s.eventClient.IsEventOwner(ctx, task.EventID, userID)
 	if err != nil {
 		s.log.Error("UpdateTask: ошибка проверки владельца", "error", err)
 		return nil, err
 	}
-
 	isCreator := task.CreatedBy == userID
+	isAssigned := task.AssignedTo != nil && *task.AssignedTo == userID
 
-	if !isOwner && !isCreator {
+	// Базовые права: админ или создатель могут редактировать любые поля
+	canEdit := isOwner || isCreator
+
+	// Для изменения статуса достаточно быть назначенным
+	canChangeStatus := isOwner || isCreator || isAssigned
+
+	// Для переназначения — только админ
+	canReassign := isOwner
+
+	if !canEdit && !canChangeStatus {
 		s.log.Warn("UpdateTask: попытка редактирования без прав", "task_id", taskID, "user_id", userID)
 		return nil, ErrNotAuthorized
 	}
 
-	// Если задача не подтверждена, менять можно только создателю или админу
+	// Если задача не подтверждена, менять может только создатель или админ
 	if !task.ApprovedByAdmin && !isCreator && !isOwner {
 		s.log.Warn("UpdateTask: попытка редактирования неподтвержденной задачи", "task_id", taskID, "user_id", userID)
 		return nil, ErrNotAuthorized
@@ -252,18 +261,30 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 	s.log.Trace("UpdateTask: обновление полей", "task_id", taskID)
 
 	if req.Title != nil {
+		if !canEdit {
+			return nil, ErrNotAuthorized
+		}
 		task.Title = *req.Title
 	}
 	if req.Description != nil {
+		if !canEdit {
+			return nil, ErrNotAuthorized
+		}
 		task.Description = *req.Description
 	}
 	if req.Priority != nil {
+		if !canEdit {
+			return nil, ErrNotAuthorized
+		}
 		if *req.Priority != "high" && *req.Priority != "medium" && *req.Priority != "low" {
 			return nil, ErrInvalidPriority
 		}
 		task.Priority = *req.Priority
 	}
 	if req.DueDate != nil {
+		if !canEdit {
+			return nil, ErrNotAuthorized
+		}
 		if req.DueDate.Before(time.Now()) {
 			return nil, ErrInvalidDueDate
 		}
@@ -272,7 +293,7 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 
 	// Переназначить может только админ
 	if req.AssignedTo != nil {
-		if !isOwner {
+		if !canReassign {
 			s.log.Warn("UpdateTask: попытка переназначения без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
@@ -281,15 +302,13 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 
 	// Изменить статус может админ, создатель или назначенный
 	if req.Status != nil {
-		if *req.Status != "pending" && *req.Status != "done" && *req.Status != "cancelled" {
-			return nil, ErrInvalidStatus
-		}
-
-		isAssigned := task.AssignedTo != nil && *task.AssignedTo == userID
-
-		if !isOwner && !isCreator && !isAssigned {
+		if !canChangeStatus {
 			s.log.Warn("UpdateTask: попытка изменения статуса без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
+		}
+
+		if *req.Status != "pending" && *req.Status != "done" && *req.Status != "cancelled" {
+			return nil, ErrInvalidStatus
 		}
 
 		oldStatus := task.Status
@@ -529,4 +548,10 @@ func (s *TaskService) CancelEventTasks(ctx context.Context, eventID uuid.UUID) e
 
 	s.log.Info("CancelEventTasks: задачи отменены", "event_id", eventID)
 	return nil
+}
+
+// GetCommentsCount возвращает количество комментариев у задачи
+func (s *TaskService) GetCommentsCount(ctx context.Context, taskID uuid.UUID) (int64, error) {
+	s.log.Trace("GetCommentsCount: начало", "task_id", taskID)
+	return s.commentRepo.CountByTaskID(ctx, taskID)
 }
