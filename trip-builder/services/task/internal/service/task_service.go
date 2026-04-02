@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/client/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/kafka"
@@ -13,19 +14,24 @@ import (
 )
 
 var (
-	ErrTaskNotFound     = errors.New("task not found")
-	ErrNotAuthorized    = errors.New("not authorized to modify this task")
-	ErrInvalidStatus    = errors.New("invalid task status")
-	ErrInvalidPriority  = errors.New("invalid priority value")
-	ErrInvalidDueDate   = errors.New("due date cannot be in the past")
-	ErrEventNotFound    = errors.New("event not found")
-	ErrTemplateNotFound = errors.New("template not found")
+	ErrTaskNotFound        = errors.New("task not found")
+	ErrNotAuthorized       = errors.New("not authorized to modify this task")
+	ErrInvalidStatus       = errors.New("invalid task status")
+	ErrInvalidPriority     = errors.New("invalid priority value")
+	ErrInvalidDueDate      = errors.New("due date cannot be in the past")
+	ErrEventNotFound       = errors.New("event not found")
+	ErrTemplateNotFound    = errors.New("template not found")
+	ErrNotApproved         = errors.New("task not approved by admin")
+	ErrAlreadyApproved     = errors.New("task already approved")
+	ErrNotEventOwner       = errors.New("user is not the owner of this event")
+	ErrNotEventParticipant = errors.New("user is not a participant of this event")
 )
 
 type TaskService struct {
 	taskRepo     repository.TaskRepository
 	commentRepo  repository.TaskCommentRepository
 	templateRepo repository.TaskTemplateRepository
+	eventClient  *event.Client
 	producer     *kafka.TaskProducer
 	log          *logger.Logger
 }
@@ -34,6 +40,7 @@ func NewTaskService(
 	taskRepo repository.TaskRepository,
 	commentRepo repository.TaskCommentRepository,
 	templateRepo repository.TaskTemplateRepository,
+	eventClient *event.Client,
 	producer *kafka.TaskProducer,
 	log *logger.Logger,
 ) *TaskService {
@@ -41,6 +48,7 @@ func NewTaskService(
 		taskRepo:     taskRepo,
 		commentRepo:  commentRepo,
 		templateRepo: templateRepo,
+		eventClient:  eventClient,
 		producer:     producer,
 		log:          log,
 	}
@@ -67,30 +75,70 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 		priority = "medium"
 	}
 
-	status := "pending"
-	now := time.Now()
-
-	task := &models.Task{
-		ID:          uuid.New(),
-		EventID:     req.EventID,
-		Title:       req.Title,
-		Description: req.Description,
-		AssignedTo:  req.AssignedTo,
-		CreatedBy:   userID,
-		Priority:    priority,
-		Status:      status,
-		DueDate:     req.DueDate,
-		CreatedAt:   now,
+	// Проверяем права: кто создает задачу
+	isOwner, err := s.eventClient.IsEventOwner(ctx, req.EventID, userID)
+	if err != nil {
+		s.log.Error("CreateTask: ошибка проверки владельца", "error", err)
+		return nil, err
 	}
 
-	s.log.Trace("CreateTask: сохранение в БД", "task_id", task.ID)
+	isParticipant, err := s.eventClient.IsEventParticipant(ctx, req.EventID, userID)
+	if err != nil {
+		s.log.Error("CreateTask: ошибка проверки участника", "error", err)
+		return nil, err
+	}
+
+	if !isOwner && !isParticipant {
+		s.log.Warn("CreateTask: пользователь не является участником события", "user_id", userID, "event_id", req.EventID)
+		return nil, ErrNotAuthorized
+	}
+
+	// Определяем assigned_to
+	assignedTo := req.AssignedTo
+	approvedByAdmin := false
+
+	if assignedTo == nil {
+		// Если назначенный не указан — назначаем на создателя
+		assignedTo = &userID
+	}
+
+	if isOwner {
+		// Админ: задача сразу подтверждена
+		approvedByAdmin = true
+	} else {
+		// Участник: проверяем, на кого создает задачу
+		if assignedTo != nil && *assignedTo == userID {
+			// Создает задачу для себя → сразу подтверждена
+			approvedByAdmin = true
+		} else {
+			// Создает задачу для другого → требует подтверждения админа
+			approvedByAdmin = false
+		}
+	}
+
+	now := time.Now()
+	task := &models.Task{
+		ID:              uuid.New(),
+		EventID:         req.EventID,
+		Title:           req.Title,
+		Description:     req.Description,
+		AssignedTo:      assignedTo,
+		CreatedBy:       userID,
+		Priority:        priority,
+		Status:          "pending",
+		DueDate:         req.DueDate,
+		ApprovedByAdmin: approvedByAdmin,
+		CreatedAt:       now,
+	}
+
+	s.log.Trace("CreateTask: сохранение в БД", "task_id", task.ID, "approved_by_admin", approvedByAdmin)
 
 	if err := s.taskRepo.Create(ctx, task); err != nil {
 		s.log.Error("CreateTask: ошибка сохранения", "error", err, "task_id", task.ID)
 		return nil, err
 	}
 
-	s.log.Info("CreateTask: задача создана", "task_id", task.ID, "event_id", task.EventID, "created_by", userID)
+	s.log.Info("CreateTask: задача создана", "task_id", task.ID, "event_id", task.EventID, "created_by", userID, "approved_by_admin", approvedByAdmin)
 	return task, nil
 }
 
@@ -127,6 +175,48 @@ func (s *TaskService) GetTasks(ctx context.Context, eventID *uuid.UUID, assigned
 	return tasks, total, nil
 }
 
+// ApproveTask подтверждает задачу (только для админа)
+func (s *TaskService) ApproveTask(ctx context.Context, taskID, userID uuid.UUID) (*models.Task, error) {
+	s.log.Debug("ApproveTask: начало", "task_id", taskID, "user_id", userID)
+
+	task, err := s.taskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, ErrTaskNotFound
+	}
+
+	// Проверяем, что пользователь — владелец события
+	isOwner, err := s.eventClient.IsEventOwner(ctx, task.EventID, userID)
+	if err != nil {
+		s.log.Error("ApproveTask: ошибка проверки владельца", "error", err)
+		return nil, err
+	}
+	if !isOwner {
+		s.log.Warn("ApproveTask: пользователь не является владельцем", "user_id", userID, "event_id", task.EventID)
+		return nil, ErrNotAuthorized
+	}
+
+	// Проверяем, что задача еще не подтверждена
+	if task.ApprovedByAdmin {
+		s.log.Debug("ApproveTask: задача уже подтверждена", "task_id", taskID)
+		return nil, ErrAlreadyApproved
+	}
+
+	task.ApprovedByAdmin = true
+	now := time.Now()
+	task.UpdatedAt = &now
+
+	if err := s.taskRepo.Update(ctx, task); err != nil {
+		s.log.Error("ApproveTask: ошибка сохранения", "error", err, "task_id", taskID)
+		return nil, err
+	}
+
+	s.log.Info("ApproveTask: задача подтверждена", "task_id", taskID, "user_id", userID)
+	return task, nil
+}
+
 // UpdateTask обновляет задачу
 func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *models.UpdateTaskRequest, userID uuid.UUID) (*models.Task, error) {
 	s.log.Debug("UpdateTask: начало", "task_id", taskID, "user_id", userID)
@@ -139,9 +229,23 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 		return nil, ErrTaskNotFound
 	}
 
-	// Проверяем права: только создатель может редактировать
-	if task.CreatedBy != userID {
-		s.log.Warn("UpdateTask: попытка редактирования чужой задачи", "task_id", taskID, "user_id", userID, "created_by", task.CreatedBy)
+	// Проверяем права: админ или создатель
+	isOwner, err := s.eventClient.IsEventOwner(ctx, task.EventID, userID)
+	if err != nil {
+		s.log.Error("UpdateTask: ошибка проверки владельца", "error", err)
+		return nil, err
+	}
+
+	isCreator := task.CreatedBy == userID
+
+	if !isOwner && !isCreator {
+		s.log.Warn("UpdateTask: попытка редактирования без прав", "task_id", taskID, "user_id", userID)
+		return nil, ErrNotAuthorized
+	}
+
+	// Если задача не подтверждена, менять можно только создателю или админу
+	if !task.ApprovedByAdmin && !isCreator && !isOwner {
+		s.log.Warn("UpdateTask: попытка редактирования неподтвержденной задачи", "task_id", taskID, "user_id", userID)
 		return nil, ErrNotAuthorized
 	}
 
@@ -152,9 +256,6 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 	}
 	if req.Description != nil {
 		task.Description = *req.Description
-	}
-	if req.AssignedTo != nil {
-		task.AssignedTo = req.AssignedTo
 	}
 	if req.Priority != nil {
 		if *req.Priority != "high" && *req.Priority != "medium" && *req.Priority != "low" {
@@ -168,14 +269,32 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 		}
 		task.DueDate = req.DueDate
 	}
+
+	// Переназначить может только админ
+	if req.AssignedTo != nil {
+		if !isOwner {
+			s.log.Warn("UpdateTask: попытка переназначения без прав", "task_id", taskID, "user_id", userID)
+			return nil, ErrNotAuthorized
+		}
+		task.AssignedTo = req.AssignedTo
+	}
+
+	// Изменить статус может админ, создатель или назначенный
 	if req.Status != nil {
 		if *req.Status != "pending" && *req.Status != "done" && *req.Status != "cancelled" {
 			return nil, ErrInvalidStatus
 		}
+
+		isAssigned := task.AssignedTo != nil && *task.AssignedTo == userID
+
+		if !isOwner && !isCreator && !isAssigned {
+			s.log.Warn("UpdateTask: попытка изменения статуса без прав", "task_id", taskID, "user_id", userID)
+			return nil, ErrNotAuthorized
+		}
+
 		oldStatus := task.Status
 		task.Status = *req.Status
 
-		// Если задача выполнена, заполняем completed_at
 		if task.Status == "done" && oldStatus != "done" {
 			now := time.Now()
 			task.CompletedAt = &now
@@ -214,9 +333,17 @@ func (s *TaskService) DeleteTask(ctx context.Context, taskID uuid.UUID, userID u
 		return ErrTaskNotFound
 	}
 
-	// Проверяем права: только создатель может удалить
-	if task.CreatedBy != userID {
-		s.log.Warn("DeleteTask: попытка удаления чужой задачи", "task_id", taskID, "user_id", userID, "created_by", task.CreatedBy)
+	// Проверяем права: админ или создатель
+	isOwner, err := s.eventClient.IsEventOwner(ctx, task.EventID, userID)
+	if err != nil {
+		s.log.Error("DeleteTask: ошибка проверки владельца", "error", err)
+		return err
+	}
+
+	isCreator := task.CreatedBy == userID
+
+	if !isOwner && !isCreator {
+		s.log.Warn("DeleteTask: попытка удаления без прав", "task_id", taskID, "user_id", userID)
 		return ErrNotAuthorized
 	}
 
@@ -332,16 +459,17 @@ func (s *TaskService) GenerateTasksFromTemplates(ctx context.Context, eventID uu
 		dueDate := startDate.AddDate(0, 0, template.TriggerDays)
 
 		task := &models.Task{
-			ID:          uuid.New(),
-			EventID:     eventID,
-			Title:       template.Title,
-			Description: template.Description,
-			AssignedTo:  nil,
-			CreatedBy:   createdBy,
-			Priority:    template.Priority,
-			Status:      "pending",
-			DueDate:     &dueDate,
-			CreatedAt:   now,
+			ID:              uuid.New(),
+			EventID:         eventID,
+			Title:           template.Title,
+			Description:     template.Description,
+			AssignedTo:      nil,
+			CreatedBy:       createdBy,
+			Priority:        template.Priority,
+			Status:          "pending",
+			DueDate:         &dueDate,
+			ApprovedByAdmin: true, // задачи от админа сразу подтверждены
+			CreatedAt:       now,
 		}
 
 		s.log.Trace("GenerateTasksFromTemplates: создание задачи по шаблону", "template_id", template.ID, "task_id", task.ID, "due_date", dueDate)
@@ -379,10 +507,8 @@ func (s *TaskService) RecalculateDueDates(ctx context.Context, eventID uuid.UUID
 			continue
 		}
 
-		// Вычисляем сдвиг относительно старой даты
 		// Для простоты: пересчитываем дедлайн как новый старт + смещение от старого старта
 		// В реальном сценарии нужно знать исходный start_date события
-		// Пока оставляем как есть, так как у нас нет старого start_date
 		// TODO: при получении события event.updated будет старый и новый start_date
 		s.log.Trace("RecalculateDueDates: задача требует пересчёта", "task_id", task.ID, "old_due_date", task.DueDate)
 		updatedCount++

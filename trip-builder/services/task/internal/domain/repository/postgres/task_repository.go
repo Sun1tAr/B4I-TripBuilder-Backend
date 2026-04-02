@@ -32,13 +32,14 @@ func (r *TaskRepository) table() string {
 
 func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 	query := fmt.Sprintf(`
-		INSERT INTO %s (id, event_id, title, description, assigned_to, created_by, priority, status, due_date, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO %s (id, event_id, title, description, assigned_to, created_by, priority, status, due_date, approved_by_admin, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`, r.table())
 
 	_, err := r.db.ExecContext(ctx, query,
 		task.ID, task.EventID, task.Title, task.Description, task.AssignedTo,
-		task.CreatedBy, task.Priority, task.Status, task.DueDate, task.CreatedAt,
+		task.CreatedBy, task.Priority, task.Status, task.DueDate,
+		task.ApprovedByAdmin, task.CreatedAt,
 	)
 	if err != nil {
 		r.log.Error("TaskRepository.Create: ошибка создания", "error", err, "task_id", task.ID)
@@ -51,7 +52,7 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 
 func (r *TaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	query := fmt.Sprintf(`
-		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, created_at, updated_at
+		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, approved_by_admin, created_at, updated_at
 		FROM %s WHERE id = $1
 	`, r.table())
 
@@ -62,7 +63,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Tas
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&task.ID, &task.EventID, &task.Title, &description, &assignedTo,
 		&task.CreatedBy, &task.Priority, &task.Status, &dueDate, &completedAt,
-		&task.CreatedAt, &updatedAt,
+		&task.ApprovedByAdmin, &task.CreatedAt, &updatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -94,7 +95,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Tas
 
 func (r *TaskRepository) GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Task, error) {
 	query := fmt.Sprintf(`
-		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, created_at, updated_at
+		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, approved_by_admin, created_at, updated_at
 		FROM %s WHERE event_id = $1
 	`, r.table())
 
@@ -114,7 +115,7 @@ func (r *TaskRepository) GetByEventID(ctx context.Context, eventID uuid.UUID) ([
 		err := rows.Scan(
 			&task.ID, &task.EventID, &task.Title, &description, &assignedTo,
 			&task.CreatedBy, &task.Priority, &task.Status, &dueDate, &completedAt,
-			&task.CreatedAt, &updatedAt,
+			&task.ApprovedByAdmin, &task.CreatedAt, &updatedAt,
 		)
 		if err != nil {
 			r.log.Error("TaskRepository.GetByEventID: ошибка сканирования", "error", err)
@@ -186,7 +187,7 @@ func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, assignedT
 
 	// Получаем данные
 	query := fmt.Sprintf(`
-		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, created_at, updated_at
+		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, approved_by_admin, created_at, updated_at
 		FROM %s %s
 		ORDER BY due_date ASC NULLS LAST, created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -210,7 +211,7 @@ func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, assignedT
 		err := rows.Scan(
 			&task.ID, &task.EventID, &task.Title, &description, &assignedToID,
 			&task.CreatedBy, &task.Priority, &task.Status, &dueDate, &completedAt,
-			&task.CreatedAt, &updatedAt,
+			&task.ApprovedByAdmin, &task.CreatedAt, &updatedAt,
 		)
 		if err != nil {
 			r.log.Error("TaskRepository.List: ошибка сканирования", "error", err)
@@ -249,13 +250,16 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 			priority = $4,
 			status = $5,
 			due_date = $6,
+			approved_by_admin = $7,
+			completed_at = $8,
 			updated_at = NOW()
-		WHERE id = $7
+		WHERE id = $9
 	`, r.table())
 
 	_, err := r.db.ExecContext(ctx, query,
 		task.Title, task.Description, task.AssignedTo,
-		task.Priority, task.Status, task.DueDate, task.ID,
+		task.Priority, task.Status, task.DueDate,
+		task.ApprovedByAdmin, task.CompletedAt, task.ID,
 	)
 	if err != nil {
 		r.log.Error("TaskRepository.Update: ошибка обновления", "error", err, "task_id", task.ID)

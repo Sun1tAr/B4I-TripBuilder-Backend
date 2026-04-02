@@ -149,6 +149,8 @@ func main() {
 	protected.HandleFunc("/{id}/invite", eventHandler.InviteParticipants).Methods("POST")
 
 	protected.HandleFunc("/{id}/join", eventHandler.JoinEvent).Methods("POST")
+	protected.HandleFunc("/{id}/owner", eventHandler.CheckOwner).Methods("GET")
+	protected.HandleFunc("/{id}/participant", eventHandler.CheckParticipant).Methods("GET")
 	protected.HandleFunc("/{id}/leave", eventHandler.LeaveEvent).Methods("DELETE")
 	protected.HandleFunc("/{id}/accept/{userId}", eventHandler.AcceptParticipant).Methods("POST")
 	protected.HandleFunc("/{id}/decline/{userId}", eventHandler.DeclineParticipant).Methods("POST")

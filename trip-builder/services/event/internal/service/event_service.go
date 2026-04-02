@@ -1034,3 +1034,13 @@ func (s *EventService) GetParticipantsStats(ctx context.Context, eventIDs []uuid
 
 	return result, nil
 }
+
+// IsEventOwner проверяет, является ли пользователь владельцем события
+func (s *EventService) IsEventOwner(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	return s.participantRepo.IsOwner(ctx, eventID, userID)
+}
+
+// IsEventParticipant проверяет, является ли пользователь активным участником события
+func (s *EventService) IsEventParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	return s.participantRepo.IsParticipant(ctx, eventID, userID)
+}

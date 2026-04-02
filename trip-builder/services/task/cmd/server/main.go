@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/client/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/http/handlers"
@@ -72,17 +73,20 @@ func main() {
 	commentRepo := postgres.NewTaskCommentRepository(db, cfg.Database.Schema, log)
 	templateRepo := postgres.NewTaskTemplateRepository(db, cfg.Database.Schema, log)
 
+	// Инициализация клиента Event Service
+	eventClient := event.NewClient(cfg.EventServiceURL, cfg.HTTPClientTimeout, log)
+
 	// Инициализация Kafka продюсера
 	taskProducer := kafka.NewTaskProducer(cfg.Kafka.Brokers, log)
 
 	// Инициализация сервиса
-	taskService := service.NewTaskService(taskRepo, commentRepo, templateRepo, taskProducer, log)
+	taskService := service.NewTaskService(taskRepo, commentRepo, templateRepo, eventClient, taskProducer, log)
 
 	// Инициализация хендлеров
 	taskHandler := handlers.NewTaskHandler(taskService, log)
 
 	// Запуск Kafka consumer для событий
-	if len(cfg.Kafka.Brokers) > 0 {
+	if len(cfg.Kafka.Brokers) > 0 && cfg.Kafka.Brokers[0] != "" {
 		// Consumer для event.created
 		eventCreatedConsumer := kafka.NewEventConsumer(
 			cfg.Kafka.Brokers,
@@ -90,7 +94,7 @@ func main() {
 			"task-service",
 			taskService,
 			log,
-			cfg.GenerateTemplatesEnabled, // передаем флаг
+			cfg.GenerateTemplatesEnabled,
 		)
 		go eventCreatedConsumer.Start(context.Background())
 		log.Info("Запущен consumer для топика", "topic", cfg.EventCreatedTopic, "generate_templates_enabled", cfg.GenerateTemplatesEnabled)
@@ -102,7 +106,7 @@ func main() {
 			"task-service",
 			taskService,
 			log,
-			false, // для updated не нужна генерация
+			false,
 		)
 		go eventUpdatedConsumer.Start(context.Background())
 		log.Info("Запущен consumer для топика", "topic", cfg.EventUpdatedTopic)
@@ -114,7 +118,7 @@ func main() {
 			"task-service",
 			taskService,
 			log,
-			false, // для cancelled не нужна генерация
+			false,
 		)
 		go eventCancelledConsumer.Start(context.Background())
 		log.Info("Запущен consumer для топика", "topic", cfg.EventCancelledTopic)
@@ -135,6 +139,7 @@ func main() {
 	api.HandleFunc("", taskHandler.GetTasks).Methods("GET")
 	api.HandleFunc("", taskHandler.CreateTask).Methods("POST")
 	api.HandleFunc("/templates", taskHandler.GetTemplates).Methods("GET")
+	api.HandleFunc("/{id}/approve", taskHandler.ApproveTask).Methods("POST")
 	api.HandleFunc("/{id}/comments", taskHandler.AddComment).Methods("POST")
 	api.HandleFunc("/{id}", taskHandler.GetTaskByID).Methods("GET")
 	api.HandleFunc("/{id}", taskHandler.UpdateTask).Methods("PUT")

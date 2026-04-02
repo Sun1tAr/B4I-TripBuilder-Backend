@@ -7,18 +7,19 @@ import (
 )
 
 type Task struct {
-	ID          uuid.UUID  `json:"id"`
-	EventID     uuid.UUID  `json:"event_id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	AssignedTo  *uuid.UUID `json:"assigned_to,omitempty"` // nil = всем
-	CreatedBy   uuid.UUID  `json:"created_by"`
-	Priority    string     `json:"priority"` // high, medium, low
-	Status      string     `json:"status"`   // pending, done, cancelled
-	DueDate     *time.Time `json:"due_date,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+	ID              uuid.UUID  `json:"id"`
+	EventID         uuid.UUID  `json:"event_id"`
+	Title           string     `json:"title"`
+	Description     string     `json:"description,omitempty"`
+	AssignedTo      *uuid.UUID `json:"assigned_to,omitempty"`
+	CreatedBy       uuid.UUID  `json:"created_by"`
+	Priority        string     `json:"priority"` // high, medium, low
+	Status          string     `json:"status"`   // pending, done, cancelled
+	DueDate         *time.Time `json:"due_date,omitempty"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	ApprovedByAdmin bool       `json:"approved_by_admin"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
 }
 
 type TaskComment struct {

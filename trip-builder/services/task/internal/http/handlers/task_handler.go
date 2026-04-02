@@ -59,17 +59,18 @@ func (h *TaskHandler) getUserIDFromContext(r *http.Request) *uuid.UUID {
 
 func taskToResponse(task *models.Task) *taskdto.TaskResponse {
 	resp := &taskdto.TaskResponse{
-		ID:          task.ID,
-		EventID:     task.EventID,
-		Title:       task.Title,
-		Description: task.Description,
-		CreatedBy:   task.CreatedBy,
-		Priority:    task.Priority,
-		Status:      task.Status,
-		DueDate:     task.DueDate,
-		CompletedAt: task.CompletedAt,
-		CreatedAt:   task.CreatedAt,
-		UpdatedAt:   task.UpdatedAt,
+		ID:              task.ID,
+		EventID:         task.EventID,
+		Title:           task.Title,
+		Description:     task.Description,
+		CreatedBy:       task.CreatedBy,
+		Priority:        task.Priority,
+		Status:          task.Status,
+		DueDate:         task.DueDate,
+		CompletedAt:     task.CompletedAt,
+		ApprovedByAdmin: task.ApprovedByAdmin,
+		CreatedAt:       task.CreatedAt,
+		UpdatedAt:       task.UpdatedAt,
 	}
 	if task.AssignedTo != nil {
 		resp.AssignedTo = task.AssignedTo
@@ -442,4 +443,48 @@ func (h *TaskHandler) GetTemplates(w http.ResponseWriter, r *http.Request) {
 
 	log.Info("GetTemplates: шаблоны получены", "count", len(response))
 	h.writeJSON(w, http.StatusOK, response)
+}
+
+// ApproveTask подтверждает задачу (только для админа)
+func (h *TaskHandler) ApproveTask(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	taskIDStr := vars["id"]
+
+	taskID, err := uuid.Parse(taskIDStr)
+	if err != nil {
+		log.Debug("ApproveTask: неверный ID", "task_id", taskIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid task id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	log.Debug("ApproveTask: подтверждение задачи", "task_id", taskID, "user_id", userID)
+
+	task, err := h.taskService.ApproveTask(r.Context(), taskID, *userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrTaskNotFound):
+			log.Debug("ApproveTask: задача не найдена", "task_id", taskID)
+			h.writeError(w, http.StatusNotFound, "task not found", "")
+		case errors.Is(err, service.ErrNotAuthorized):
+			log.Debug("ApproveTask: нет прав", "task_id", taskID, "user_id", userID)
+			h.writeError(w, http.StatusForbidden, "not authorized", "")
+		case errors.Is(err, service.ErrAlreadyApproved):
+			log.Debug("ApproveTask: задача уже подтверждена", "task_id", taskID)
+			h.writeError(w, http.StatusConflict, "task already approved", "")
+		default:
+			log.Error("Ошибка подтверждения задачи", "error", err, "task_id", taskID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	log.Info("ApproveTask: задача подтверждена", "task_id", taskID, "user_id", userID)
+	h.writeJSON(w, http.StatusOK, taskToResponse(task))
 }

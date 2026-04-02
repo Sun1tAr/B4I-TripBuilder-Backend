@@ -6,21 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type TaskResponse struct {
-	ID          uuid.UUID  `json:"id"`
-	EventID     uuid.UUID  `json:"event_id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	AssignedTo  *uuid.UUID `json:"assigned_to,omitempty"`
-	CreatedBy   uuid.UUID  `json:"created_by"`
-	Priority    string     `json:"priority"`
-	Status      string     `json:"status"`
-	DueDate     *time.Time `json:"due_date,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-}
-
 type TaskDetailResponse struct {
 	TaskResponse
 	Comments []TaskCommentResponse `json:"comments,omitempty"`
@@ -51,4 +36,20 @@ type ListTasksResponse struct {
 
 type MessageResponse struct {
 	Message string `json:"message"`
+}
+
+type TaskResponse struct {
+	ID              uuid.UUID  `json:"id"`
+	EventID         uuid.UUID  `json:"event_id"`
+	Title           string     `json:"title"`
+	Description     string     `json:"description,omitempty"`
+	AssignedTo      *uuid.UUID `json:"assigned_to,omitempty"`
+	CreatedBy       uuid.UUID  `json:"created_by"`
+	Priority        string     `json:"priority"`
+	Status          string     `json:"status"`
+	DueDate         *time.Time `json:"due_date,omitempty"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	ApprovedByAdmin bool       `json:"approved_by_admin"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
 }
