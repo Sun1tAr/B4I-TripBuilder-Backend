@@ -32,5 +32,25 @@ cd ..\task
 go mod tidy
 go mod vendor
 
+Write-Host "Update Chat" -ForegroundColor Green
+cd ..\chat
+go mod tidy
+go mod vendor
+
+Write-Host "Update Media" -ForegroundColor Green
+cd ..\media
+go mod tidy
+go mod vendor
+
+Write-Host "Update Тщешашсфешщт" -ForegroundColor Green
+cd ..\notification
+go mod tidy
+go mod vendor
+
+Write-Host "Update Search" -ForegroundColor Green
+cd ..\search
+go mod tidy
+go mod vendor
+
 Write-Host "Back road" -ForegroundColor Green
 cd ..\..\..\.scripts

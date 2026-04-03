@@ -177,6 +177,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  chat:
+    build:
+      context: services/chat/
+      dockerfile: Dockerfile
+    image: ${CHAT_IMAGE:-trip-builder-chat:local}
+    container_name: ${CHAT_CONTAINER_NAME:-trip-builder-backend-chat}
+    env_file:
+      - services/chat/.env
+    ports:
+      - "${CHAT_PORT:-8086}:8086"
+    networks:
+      - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge

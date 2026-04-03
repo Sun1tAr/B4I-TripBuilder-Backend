@@ -82,7 +82,7 @@ func main() {
 	authClient := auth.NewClient(cfg.AuthServiceURL, cfg.HTTPClientTimeout, log)
 
 	// Инициализация Kafka продюсера
-	eventProducer := kafka.NewEventProducer(cfg.Kafka.Brokers, log)
+	eventProducer := kafka.NewEventProducer(cfg, log)
 
 	// Инициализация сервисов
 	eventService := service.NewEventService(
@@ -107,7 +107,7 @@ func main() {
 	if len(cfg.Kafka.Brokers) > 0 {
 		userCreatedConsumer := consumer.NewUserCreatedConsumer(
 			cfg.Kafka.Brokers,
-			"user.created",
+			cfg.UserCreatedTopic,
 			"event-service",
 			participantRepo,
 			log,
