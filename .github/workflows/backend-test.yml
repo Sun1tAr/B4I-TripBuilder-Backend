@@ -65,11 +65,26 @@ jobs:
       kafka_port: 9092
 
       # jDoc топики кафки
-      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
-        "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
-        , "route.updated", "route.deleted",
-        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited", "task.completed",
-        "event.participant_joined"]'
+      kafka_topics: '[
+        "user.created", 
+        "user.updated", 
+        "user.deleted", 
+        "route.created", 
+        "event.completed", 
+        "media.uploaded", 
+        "user.events.retry", 
+        "user.events.dlq", 
+        "user.achievement_earned", 
+        "route.updated", 
+        "route.deleted",
+        "event.created", 
+        "event.updated", 
+        "event.completed", 
+        "event.cancelled", 
+        "waypoint.visited", 
+        "task.completed",
+        "event.participant_joined"
+        ]'
 
       route_port: 9003
       route_container_name: trip-builder-backend-route-test
@@ -82,6 +97,15 @@ jobs:
 
       chat_port: 9006
       chat_container_name: trip-builder-backend-chat-test
+
+      media_port: 9007
+      media_container_name: trip-builder-backend-media-test
+
+      minio_port: 8800
+      minio_console_port: 8801
+      minio_container_name: minio-test
+      minio_user: minio_user
+      minio_password: minio_pass_test
 
 
     secrets:

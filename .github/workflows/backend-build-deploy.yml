@@ -153,6 +153,37 @@ on:
         required: true
         type: string
 
+      media_port:
+        description: 'Media service port'
+        required: true
+        type: string
+      media_container_name:
+        description: 'Media container name'
+        required: true
+        type: string
+
+
+      minio_port:
+        description: 'Minio port'
+        required: true
+        type: string
+      minio_console_port:
+        description: 'Minio console port'
+        required: true
+        type: string
+      minio_container_name:
+        description: 'Minio container name'
+        required: true
+        type: string
+      minio_user:
+        description: 'Minio auth username'
+        required: true
+        type: string
+      minio_password:
+        description: 'Minio auth password'
+        required: true
+        type: string
+
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
@@ -369,6 +400,14 @@ jobs:
           CHAT_PORT=${{ inputs.chat_port }}
           CHAT_CONTAINER_NAME=${{ inputs.chat_container_name }}
           CHAT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/chat:$HUMAN_TAG
+          MEDIA_PORT=${{ inputs.media_port }}
+          MEDIA_CONTAINER_NAME=${{ inputs.media_container_name }}
+          MEDIA_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/media:$HUMAN_TAG
+          MINIO_CONTAINER_NAME=${{  inputs.minio_container_name }}
+          MINIO_PORT=${{  inputs.minio_port  }}
+          MINIO_CONSOLE_PORT=${{  inputs.minio_console_port  }}
+          MINIO_ROOT_USER=${{  inputs.minio_user  }}
+          MINIO_ROOT_PASSWORD=${{  inputs.minio_password  }}
           EOF"
 
       - name: Login to GHCR on server

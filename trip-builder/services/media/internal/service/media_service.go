@@ -157,7 +157,7 @@ func (s *MediaService) Upload(ctx context.Context, userID uuid.UUID, fileData []
 	}
 
 	// Формируем публичный URL для доступа к файлу
-	publicURL := fmt.Sprintf("%s/api/v1/media/%s/file", s.publicMediaURL, media.ID.String())
+	publicURL := fmt.Sprintf("%s/media/%s/file", s.publicMediaURL, media.ID.String())
 
 	// Публикуем событие
 	go func() {
@@ -313,5 +313,5 @@ func (s *MediaService) Delete(ctx context.Context, mediaID, userID uuid.UUID) er
 
 // GetPublicURL возвращает публичный URL для доступа к медиа
 func (s *MediaService) GetPublicURL(mediaID uuid.UUID) string {
-	return fmt.Sprintf("%s/api/v1/media/%s/file", s.publicMediaURL, mediaID.String())
+	return fmt.Sprintf("%s/media/%s/file", s.publicMediaURL, mediaID.String())
 }
