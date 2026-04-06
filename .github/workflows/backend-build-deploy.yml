@@ -144,6 +144,15 @@ on:
         required: true
         type: string
 
+      chat_port:
+        description: 'Chat service port'
+        required: true
+        type: string
+      chat_container_name:
+        description: 'Chat container name'
+        required: true
+        type: string
+
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
@@ -357,6 +366,9 @@ jobs:
           TASK_PORT=${{ inputs.task_port }}
           TASK_CONTAINER_NAME=${{ inputs.task_container_name }}
           TASK_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/task:$HUMAN_TAG
+          CHAT_PORT=${{ inputs.chat_port }}
+          CHAT_CONTAINER_NAME=${{ inputs.chat_container_name }}
+          CHAT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/chat:$HUMAN_TAG
           EOF"
 
       - name: Login to GHCR on server

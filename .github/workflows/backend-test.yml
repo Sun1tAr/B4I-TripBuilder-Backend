@@ -39,7 +39,7 @@ jobs:
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       # jDoc сервисы
-      services: '["auth", "user", "gateway", "route", "event", "task"]'
+      services: '["auth", "user", "gateway", "route", "event", "task", "chat"]'
 
       auth_port: 9001
       auth_container_name: trip-builder-backend-auth-test
@@ -68,7 +68,8 @@ jobs:
       kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
         "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
         , "route.updated", "route.deleted",
-        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited", "task.completed"]'
+        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited", "task.completed",
+        "event.participant_joined"]'
 
       route_port: 9003
       route_container_name: trip-builder-backend-route-test
@@ -78,6 +79,9 @@ jobs:
 
       task_port: 9005
       task_container_name: trip-builder-backend-task-test
+
+      chat_port: 9006
+      chat_container_name: trip-builder-backend-chat-test
 
 
     secrets:
