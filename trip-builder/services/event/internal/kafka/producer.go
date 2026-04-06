@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
@@ -11,17 +12,18 @@ import (
 
 type EventProducer struct {
 	producer *kafka.Producer
+	cfg      *config.Config
 	log      *logger.Logger
 }
 
-func NewEventProducer(brokers []string, log *logger.Logger) *EventProducer {
-	log.Debug("Создание EventProducer", "brokers", brokers)
+func NewEventProducer(cfg *config.Config, log *logger.Logger) *EventProducer {
+	log.Debug("Создание EventProducer", "brokers", cfg.Kafka.Brokers)
 
-	// Создаём базовый продюсер с дефолтным топиком
-	baseProducer := kafka.NewProducer(brokers, "event", log)
+	baseProducer := kafka.NewProducer(cfg.Kafka.Brokers, "event", log)
 
 	return &EventProducer{
 		producer: baseProducer,
+		cfg:      cfg,
 		log:      log,
 	}
 }
@@ -50,7 +52,7 @@ func (p *EventProducer) PublishEventCreated(ctx context.Context, eventID, routeI
 		},
 	}
 
-	err := p.producer.PublishTo(ctx, "event.created", kafkaEvent)
+	err := p.producer.PublishTo(ctx, p.cfg.EventCreatedTopic, kafkaEvent)
 	if err != nil {
 		p.log.Error("Ошибка публикации event.created",
 			"error", err,
@@ -82,7 +84,7 @@ func (p *EventProducer) PublishEventUpdated(ctx context.Context, eventID, ownerI
 		},
 	}
 
-	err := p.producer.PublishTo(ctx, "event.updated", kafkaEvent)
+	err := p.producer.PublishTo(ctx, p.cfg.EventUpdatedTopic, kafkaEvent)
 	if err != nil {
 		p.log.Error("Ошибка публикации event.updated", "error", err, "event_id", eventID)
 		return err
@@ -110,7 +112,7 @@ func (p *EventProducer) PublishEventCompleted(ctx context.Context, eventID, rout
 		},
 	}
 
-	err := p.producer.PublishTo(ctx, "event.completed", kafkaEvent)
+	err := p.producer.PublishTo(ctx, p.cfg.EventCompletedTopic, kafkaEvent)
 	if err != nil {
 		p.log.Error("Ошибка публикации event.completed", "error", err, "event_id", eventID)
 		return err
@@ -135,7 +137,7 @@ func (p *EventProducer) PublishEventCancelled(ctx context.Context, eventID, owne
 		},
 	}
 
-	err := p.producer.PublishTo(ctx, "event.cancelled", kafkaEvent)
+	err := p.producer.PublishTo(ctx, p.cfg.EventCancelledTopic, kafkaEvent)
 	if err != nil {
 		p.log.Error("Ошибка публикации event.cancelled", "error", err, "event_id", eventID)
 		return err
@@ -162,13 +164,44 @@ func (p *EventProducer) PublishWaypointVisited(ctx context.Context, eventID, way
 		},
 	}
 
-	err := p.producer.PublishTo(ctx, "waypoint.visited", kafkaEvent)
+	err := p.producer.PublishTo(ctx, p.cfg.WaypointVisitedTopic, kafkaEvent)
 	if err != nil {
 		p.log.Error("Ошибка публикации waypoint.visited", "error", err, "event_id", eventID, "waypoint_id", waypointID)
 		return err
 	}
 
 	p.log.Info("Событие waypoint.visited опубликовано", "event_id", eventID, "waypoint_id", waypointID)
+	return nil
+}
+
+// PublishParticipantJoined публикует событие о присоединении участника
+func (p *EventProducer) PublishParticipantJoined(ctx context.Context, eventID, userID uuid.UUID) error {
+	p.log.Debug("Подготовка события event.participant_joined",
+		"event_id", eventID,
+		"user_id", userID,
+	)
+
+	kafkaEvent := kafka.Event{
+		EventID:   uuid.New().String(),
+		EventType: "event.participant_joined",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"event_id":  eventID.String(),
+			"user_id":   userID.String(),
+			"joined_at": time.Now(),
+		},
+	}
+
+	err := p.producer.PublishTo(ctx, p.cfg.ParticipantJoinedTopic, kafkaEvent)
+	if err != nil {
+		p.log.Error("Ошибка публикации event.participant_joined",
+			"error", err,
+			"event_id", eventID,
+		)
+		return err
+	}
+
+	p.log.Info("Событие event.participant_joined опубликовано", "event_id", eventID, "user_id", userID)
 	return nil
 }
 

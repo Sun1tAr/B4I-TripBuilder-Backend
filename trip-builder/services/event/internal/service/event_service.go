@@ -299,7 +299,19 @@ func (s *EventService) AcceptParticipant(ctx context.Context, eventID, ownerID, 
 
 	// Обновляем approved_by_owner = true, approved_by_user оставляем как есть (nil)
 	approvedTrue := true
-	return s.participantRepo.UpdateApproval(ctx, participant.InviteID, &approvedTrue, nil)
+	if err := s.participantRepo.UpdateApproval(ctx, participant.InviteID, &approvedTrue, nil); err != nil {
+		return err
+	}
+
+	// Публикуем событие о присоединении участника
+	go func() {
+		if err := s.producer.PublishParticipantJoined(context.Background(), eventID, participantID); err != nil {
+			s.log.Error("AcceptParticipant: ошибка публикации события", "error", err, "event_id", eventID, "user_id", participantID)
+		}
+	}()
+
+	s.log.Info("AcceptParticipant: участник принят", "event_id", eventID, "user_id", participantID)
+	return nil
 }
 
 // DeclineParticipant владелец отклоняет участника

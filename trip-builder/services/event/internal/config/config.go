@@ -16,16 +16,18 @@ type Config struct {
 	config.AppConfig
 
 	// Kafka топики
-	EventCreatedTopic    string `envconfig:"KAFKA_TOPIC_EVENT_CREATED" default:"event.created"`
-	EventUpdatedTopic    string `envconfig:"KAFKA_TOPIC_EVENT_UPDATED" default:"event.updated"`
-	EventCompletedTopic  string `envconfig:"KAFKA_TOPIC_EVENT_COMPLETED" default:"event.completed"`
-	EventCancelledTopic  string `envconfig:"KAFKA_TOPIC_EVENT_CANCELLED" default:"event.cancelled"`
-	WaypointVisitedTopic string `envconfig:"KAFKA_TOPIC_WAYPOINT_VISITED" default:"waypoint.visited"`
+	EventCreatedTopic      string `envconfig:"KAFKA_TOPIC_EVENT_CREATED" default:"event.created"`
+	EventUpdatedTopic      string `envconfig:"KAFKA_TOPIC_EVENT_UPDATED" default:"event.updated"`
+	EventCompletedTopic    string `envconfig:"KAFKA_TOPIC_EVENT_COMPLETED" default:"event.completed"`
+	EventCancelledTopic    string `envconfig:"KAFKA_TOPIC_EVENT_CANCELLED" default:"event.cancelled"`
+	WaypointVisitedTopic   string `envconfig:"KAFKA_TOPIC_WAYPOINT_VISITED" default:"waypoint.visited"`
+	ParticipantJoinedTopic string `envconfig:"KAFKA_TOPIC_PARTICIPANT_JOINED" default:"event.participant_joined"`
+	UserCreatedTopic       string `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
 
 	// URL других сервисов
 	RouteServiceURL string `envconfig:"ROUTE_SERVICE_URL" required:"true"`
 	UserServiceURL  string `envconfig:"USER_SERVICE_URL" required:"true"`
-	AuthServiceURL  string `envconfig:"AUTH_SERVICE_URL" required:"true"` // добавить
+	AuthServiceURL  string `envconfig:"AUTH_SERVICE_URL" required:"true"`
 
 	// Настройки миграций
 	MigrationEnabled bool `envconfig:"MIGRATION_ENABLED" default:"true"`
