@@ -71,6 +71,7 @@ jobs:
         "user.deleted", 
         "route.created", 
         "event.completed", 
+        "event.deleted",
         "media.uploaded", 
         "user.events.retry", 
         "user.events.dlq", 
