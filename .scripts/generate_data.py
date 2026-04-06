@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Generate synthetic data for Trip Builder via API
-NO hardcoded strings - all field names from class variables
 """
 
 import requests
@@ -26,15 +25,15 @@ POSTGRES_SCHEMA = "tpb_auth"
 
 REQUEST_DELAY = 0.8
 
-COUNT_USERS = 10
-COUNT_ROUTES = 5
-COUNT_EVENTS = 7
-MAX_LIKES_PER_ROUTE = 3
-MAX_PARTICIPANTS_PER_EVENT = 1
-MIN_TASKS_PER_EVENT = 1
-MAX_TASKS_PER_EVENT = 1
-MIN_MESSAGES_PER_EVENT = 1
-MAX_MESSAGES_PER_EVENT = 1
+COUNT_USERS = 10000
+COUNT_ROUTES = 500
+COUNT_EVENTS = 7000
+MAX_LIKES_PER_ROUTE = 30000
+MAX_PARTICIPANTS_PER_EVENT = 40
+MIN_TASKS_PER_EVENT = 15
+MAX_TASKS_PER_EVENT = 300
+MIN_MESSAGES_PER_EVENT = 15
+MAX_MESSAGES_PER_EVENT = 1150
 
 FIRST_NAMES = ["Alex", "Dmitry", "Maxim", "Vladimir", "Sergey", "Andrey", "Ekaterina", "Anna", "Maria", "Olga"]
 LAST_NAMES = ["Ivanov", "Petrov", "Sidorov", "Smirnov", "Kuznetsov", "Popov", "Vasiliev", "Sokolov"]
@@ -511,6 +510,11 @@ def random_waypoints(count: int) -> List[Dict]:
 
     return waypoints
 
+# ============================================================
+# SCRIPT START TIME
+# ============================================================
+script_start_time = time.time()
+log_info(f"Script started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # ============================================================
 # 1. REGISTER USERS
@@ -823,7 +827,7 @@ if users and tokens:
     log_info("11.1 Searching routes by keyword...")
     try:
         resp = requests.get(
-            f"{SEARCH_URL}/api/v1/search/routes?q=route&size=5",
+            f"{SEARCH_URL}/api/v1/search/routes?q=Journey&size=5",
             headers=public_headers,
             timeout=10
         )
@@ -859,7 +863,7 @@ if users and tokens:
     log_info("11.3 Searching events by keyword...")
     try:
         resp = requests.get(
-            f"{SEARCH_URL}/api/v1/search/events?q=trip&size=5",
+            f"{SEARCH_URL}/api/v1/search/events?size=5",  # без q, вернёт всё
             headers=public_headers,
             timeout=10
         )
@@ -973,3 +977,16 @@ print("+---------------------------------------------------+")
 print()
 
 log_success("Data generation completed!")
+
+# ============================================================
+# SCRIPT EXECUTION TIME
+# ============================================================
+script_end_time = time.time()
+execution_seconds = script_end_time - script_start_time
+execution_minutes = execution_seconds / 60
+
+print()
+log_step("EXECUTION TIME")
+print(f"  Total time: {execution_seconds:.2f} seconds ({execution_minutes:.2f} minutes)")
+print(f"  Started at: {datetime.fromtimestamp(script_start_time).strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"  Finished at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

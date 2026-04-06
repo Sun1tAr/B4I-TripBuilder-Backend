@@ -33,6 +33,33 @@ func (r *EventRepository) getMapping() string {
 		"settings": {
 			"number_of_shards": 1,
 			"number_of_replicas": 0,
+			"analysis": {
+				"analyzer": {
+					"russian_english": {
+						"type": "custom",
+						"tokenizer": "standard",
+						"filter": ["lowercase", "russian_stop", "english_stop", "russian_stemmer", "english_stemmer"]
+					}
+				},
+				"filter": {
+					"russian_stop": {
+						"type": "stop",
+						"stopwords": "_russian_"
+					},
+					"english_stop": {
+						"type": "stop",
+						"stopwords": "_english_"
+					},
+					"russian_stemmer": {
+						"type": "stemmer",
+						"language": "russian"
+					},
+					"english_stemmer": {
+						"type": "stemmer",
+						"language": "english"
+					}
+				}
+			},
 			"index": {
 				"max_result_window": ` + fmt.Sprintf("%d", r.cfg.MaxResultWindow) + `
 			}
@@ -42,9 +69,11 @@ func (r *EventRepository) getMapping() string {
 				"id": {"type": "keyword"},
 				"title": {
 					"type": "text",
-					"analyzer": "russian",
+					"analyzer": "russian_english",
 					"fields": {
-						"keyword": {"type": "keyword"}
+						"keyword": {"type": "keyword"},
+						"ru": {"type": "text", "analyzer": "russian"},
+						"en": {"type": "text", "analyzer": "english"}
 					}
 				},
 				"route_id": {"type": "keyword"},
