@@ -125,10 +125,13 @@ func main() {
 	// Media
 	protected.HandleFunc("/media/upload", handlers.Proxy(cfg, "media")).Methods("POST")
 	protected.HandleFunc("/media/upload/batch", handlers.Proxy(cfg, "media")).Methods("POST")
-	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("DELETE")
 	protected.HandleFunc("/media/event/{eventId}", handlers.Proxy(cfg, "media")).Methods("GET")
 	protected.HandleFunc("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media")).Methods("GET")
+	protected.HandleFunc("/media/{id}/file", handlers.Proxy(cfg, "media")).Methods("GET")
+	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
+	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("DELETE")
+
+	// вынесли в MVP1
 	protected.HandleFunc("/albums", handlers.Proxy(cfg, "media")).Methods("POST")
 	protected.HandleFunc("/albums/{id}", handlers.Proxy(cfg, "media")).Methods("PUT")
 	protected.HandleFunc("/albums/{id}/media", handlers.Proxy(cfg, "media")).Methods("POST")

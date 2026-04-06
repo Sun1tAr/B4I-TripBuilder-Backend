@@ -42,7 +42,7 @@ cd ..\media
 go mod tidy
 go mod vendor
 
-Write-Host "Update Тщешашсфешщт" -ForegroundColor Green
+Write-Host "Update Notifications" -ForegroundColor Green
 cd ..\notification
 go mod tidy
 go mod vendor
