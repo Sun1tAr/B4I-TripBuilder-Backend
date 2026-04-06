@@ -65,11 +65,26 @@ jobs:
       kafka_port: 9082
 
       # jDoc топики кафки
-      kafka_topics: '["user.created", "user.updated", "user.deleted", "route.created", 
-        "event.completed", "media.uploaded", "user.events.retry", "user.events.dlq", "user.achievement_earned"
-        , "route.updated", "route.deleted",
-        "event.created", "event.updated", "event.completed", "event.cancelled", "waypoint.visited", "task.completed",
-        "event.participant_joined"]'
+      kafka_topics: '[
+        "user.created", 
+        "user.updated", 
+        "user.deleted", 
+        "route.created", 
+        "event.completed", 
+        "media.uploaded", 
+        "user.events.retry", 
+        "user.events.dlq", 
+        "user.achievement_earned", 
+        "route.updated", 
+        "route.deleted",
+        "event.created", 
+        "event.updated", 
+        "event.completed", 
+        "event.cancelled", 
+        "waypoint.visited", 
+        "task.completed",
+        "event.participant_joined"
+        ]'
 
       route_port: 9103
       route_container_name: trip-builder-backend-route-dev
@@ -82,6 +97,15 @@ jobs:
 
       chat_port: 9106
       chat_container_name: trip-builder-backend-chat-dev
+
+      media_port: 9107
+      media_container_name: trip-builder-backend-media-dev
+
+      minio_port: 8900
+      minio_console_port: 8901
+      minio_container_name: minio-dev
+      minio_user: minio_user
+      minio_password: minio_pass_dev
 
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}

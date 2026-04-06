@@ -194,6 +194,44 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  media:
+    build:
+      context: services/media/
+      dockerfile: Dockerfile
+    image: ${MEDIA_IMAGE:-trip-builder-media:local} # fixme
+    container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media} # fixme
+    env_file:
+      - services/media/.env
+    ports:
+      - "${MEDIA_PORT:-8087}:8087"
+    networks:
+      - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ${MINIO_CONTAINER_NAME:-trip-builder-backend-minio}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data_${CONTOUR:-local}:/data
+    networks:
+      - trip-builder-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge
@@ -204,4 +242,10 @@ volumes:
   postgres_data_development:
     driver: local
   postgres_data_production:
+    driver: local
+  minio_data_local:
+    driver: local
+  minio_data_development:
+    driver: local
+  minio_data_production:
     driver: local

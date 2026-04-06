@@ -47,7 +47,7 @@ func (c *Client) GetUserEvents(ctx context.Context, userID string) ([]Event, err
 		return nil, err
 	}
 
-	// Добавляем X-User-ID из контекста
+	// Добавляем заголовок X-User-ID
 	if userID != "" {
 		req.Header.Set("X-User-ID", userID)
 	}
@@ -71,12 +71,6 @@ func (c *Client) GetUserEvents(ctx context.Context, userID string) ([]Event, err
 	c.log.Warn("Синхронный вызов Event Service не удался, отправляем в retry",
 		"user_id", userID,
 		"error", err,
-		"status_code", func() int {
-			if resp != nil {
-				return resp.StatusCode
-			}
-			return 0
-		}(),
 	)
 
 	// Сохраняем запрос в retry очередь

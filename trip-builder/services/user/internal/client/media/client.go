@@ -43,10 +43,7 @@ func (c *Client) UploadAvatar(ctx context.Context, userID string, fileData []byt
 		return "", fmt.Errorf("failed to write file data: %w", err)
 	}
 
-	// Добавляем metadata (user_id)
-	if err := writer.WriteField("user_id", userID); err != nil {
-		return "", fmt.Errorf("failed to write user_id field: %w", err)
-	}
+	// Добавляем metadata (purpose = avatar)
 	if err := writer.WriteField("purpose", "avatar"); err != nil {
 		return "", fmt.Errorf("failed to write purpose field: %w", err)
 	}
@@ -57,6 +54,8 @@ func (c *Client) UploadAvatar(ctx context.Context, userID string, fileData []byt
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	// Добавляем заголовок X-User-ID
+	req.Header.Set("X-User-ID", userID)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -69,11 +68,14 @@ func (c *Client) UploadAvatar(ctx context.Context, userID string, fileData []byt
 		return "", fmt.Errorf("media service returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	respBody, _ := io.ReadAll(resp.Body)
+	c.log.Debug("MediaClient.UploadAvatar: ответ от Media Service", "body", string(respBody))
+
 	var result struct {
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w, body: %s", err, string(respBody))
 	}
 
 	return result.URL, nil
