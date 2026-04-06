@@ -39,7 +39,7 @@ jobs:
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       # jDoc сервисы
-      services: '["auth", "user", "gateway", "route", "event", "task", "chat"]'
+      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media"]'
 
       auth_port: 9001
       auth_container_name: trip-builder-backend-auth-test
