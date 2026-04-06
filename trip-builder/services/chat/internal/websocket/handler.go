@@ -10,6 +10,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
@@ -63,7 +64,8 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Получаем event_id из URL
-	eventIDStr := r.URL.Query().Get("event_id")
+	vars := mux.Vars(r)
+	eventIDStr := vars["event_id"]
 	if eventIDStr == "" {
 		h.log.Error("WebSocket: event_id не указан")
 		return
