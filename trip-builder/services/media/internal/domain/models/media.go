@@ -25,6 +25,7 @@ type Media struct {
 
 type MediaResponse struct {
 	ID        uuid.UUID `json:"id"`
+	URL       string    `json:"url"`
 	MediaType string    `json:"media_type"`
 	FileSize  int64     `json:"file_size"`
 	Width     int       `json:"width,omitempty"`

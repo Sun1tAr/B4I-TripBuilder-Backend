@@ -98,6 +98,7 @@ func main() {
 		log,
 		cfg.MaxImageSize,
 		cfg.MaxVideoSize,
+		cfg.PublicMediaURL,
 	)
 
 	// Инициализация хендлеров

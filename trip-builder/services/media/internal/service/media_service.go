@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/media/internal/domain/models"
@@ -22,12 +23,13 @@ var (
 )
 
 type MediaService struct {
-	repo         repository.MediaRepository
-	minio        *minio.Client
-	producer     *kafka.MediaProducer
-	log          *logger.Logger
-	maxImageSize int64
-	maxVideoSize int64
+	repo           repository.MediaRepository
+	minio          *minio.Client
+	producer       *kafka.MediaProducer
+	log            *logger.Logger
+	maxImageSize   int64
+	maxVideoSize   int64
+	publicMediaURL string
 }
 
 func NewMediaService(
@@ -36,19 +38,21 @@ func NewMediaService(
 	producer *kafka.MediaProducer,
 	log *logger.Logger,
 	maxImageSize, maxVideoSize int64,
+	publicMediaURL string,
 ) *MediaService {
 	return &MediaService{
-		repo:         repo,
-		minio:        minioClient,
-		producer:     producer,
-		log:          log,
-		maxImageSize: maxImageSize,
-		maxVideoSize: maxVideoSize,
+		repo:           repo,
+		minio:          minioClient,
+		producer:       producer,
+		log:            log,
+		maxImageSize:   maxImageSize,
+		maxVideoSize:   maxVideoSize,
+		publicMediaURL: publicMediaURL,
 	}
 }
 
 // Upload загружает файл в MinIO и сохраняет метаданные
-func (s *MediaService) Upload(ctx context.Context, userID uuid.UUID, fileData []byte, filename, purpose string, eventID, waypointID *uuid.UUID) (*models.Media, error) {
+func (s *MediaService) Upload(ctx context.Context, userID uuid.UUID, fileData []byte, filename, purpose string, eventID, waypointID *uuid.UUID) (*models.MediaResponse, error) {
 	s.log.Debug("Upload: начало", "user_id", userID, "filename", filename, "purpose", purpose, "size", len(fileData))
 
 	// Определяем content-type
@@ -152,6 +156,9 @@ func (s *MediaService) Upload(ctx context.Context, userID uuid.UUID, fileData []
 		return nil, err
 	}
 
+	// Формируем публичный URL для доступа к файлу
+	publicURL := fmt.Sprintf("%s/api/v1/media/%s/file", s.publicMediaURL, media.ID.String())
+
 	// Публикуем событие
 	go func() {
 		if err := s.producer.PublishMediaUploaded(context.Background(), media.ID, userID, eventID, waypointID, purpose); err != nil {
@@ -160,7 +167,17 @@ func (s *MediaService) Upload(ctx context.Context, userID uuid.UUID, fileData []
 	}()
 
 	s.log.Info("Upload: файл загружен", "media_id", media.ID, "object_key", objectKey)
-	return media, nil
+
+	// Возвращаем DTO с публичным URL
+	return &models.MediaResponse{
+		ID:        media.ID,
+		URL:       publicURL,
+		MediaType: media.MediaType,
+		FileSize:  media.FileSize,
+		Width:     media.Width,
+		Height:    media.Height,
+		CreatedAt: media.CreatedAt,
+	}, nil
 }
 
 // processAndUploadThumbnails генерирует и загружает thumbnail и medium версии
@@ -292,4 +309,9 @@ func (s *MediaService) Delete(ctx context.Context, mediaID, userID uuid.UUID) er
 
 	s.log.Info("Delete: медиа удалено", "media_id", mediaID)
 	return nil
+}
+
+// GetPublicURL возвращает публичный URL для доступа к медиа
+func (s *MediaService) GetPublicURL(mediaID uuid.UUID) string {
+	return fmt.Sprintf("%s/api/v1/media/%s/file", s.publicMediaURL, mediaID.String())
 }

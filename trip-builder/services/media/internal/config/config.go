@@ -21,7 +21,7 @@ type Config struct {
 	MinIOSecretKey string `envconfig:"MINIO_SECRET_KEY" required:"true"`
 	MinIOBucket    string `envconfig:"MINIO_BUCKET" default:"trip-builder"`
 	MinIOUseSSL    bool   `envconfig:"MINIO_USE_SSL" default:"false"`
-	// MinIOURL удалён — не нужен
+	PublicMediaURL string `envconfig:"PUBLIC_MEDIA_URL" required:"true"`
 
 	// Ограничения
 	MaxImageSize int64 `envconfig:"MAX_IMAGE_SIZE" default:"10485760"`
