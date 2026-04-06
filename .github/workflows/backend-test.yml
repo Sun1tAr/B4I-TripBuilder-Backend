@@ -101,8 +101,8 @@ jobs:
       media_port: 9007
       media_container_name: trip-builder-backend-media-test
 
-      minio_port: 8800
-      minio_console_port: 8801
+      minio_port: 7000
+      minio_console_port: 7001
       minio_container_name: minio-test
       minio_user: minio_user
       minio_password: minio_pass_test
