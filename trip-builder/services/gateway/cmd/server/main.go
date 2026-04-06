@@ -55,9 +55,6 @@ func main() {
 	conditional.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
 	conditional.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("GET")
 
-	// Routes - условно-закрытые
-	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
-
 	// Search - условно-закрытые
 	conditional.HandleFunc("/search/routes", handlers.Proxy(cfg, "search")).Methods("GET")
 	conditional.HandleFunc("/search/events", handlers.Proxy(cfg, "search")).Methods("GET")
@@ -89,6 +86,9 @@ func main() {
 	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("PUT")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("DELETE")
+
+	// Routes - условно-закрытые
+	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
 
 	// Events - защищённые (POST, PUT, DELETE, управление участниками)
 	protected.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")

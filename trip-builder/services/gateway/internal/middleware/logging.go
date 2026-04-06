@@ -19,6 +19,8 @@ func Logging(log *logger.Logger) func(http.Handler) http.Handler {
 				"remote_addr", r.RemoteAddr,
 			)
 
+			l.Debug("Получен запрос: ", "uri", r.RequestURI)
+
 			next.ServeHTTP(w, r)
 
 			l.InfoContext(r.Context(), "Request completed",
