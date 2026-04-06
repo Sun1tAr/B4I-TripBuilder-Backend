@@ -14,14 +14,14 @@ import (
 type AchievementService struct {
 	achievementRepo repository.AchievementRepository
 	statsRepo       repository.StatsRepository
-	producer        *kafka.AchievementProducer
+	producer        *kafka.UserProducer
 	log             *logger.Logger
 }
 
 func NewAchievementService(
 	achievementRepo repository.AchievementRepository,
 	statsRepo repository.StatsRepository,
-	producer *kafka.AchievementProducer,
+	producer *kafka.UserProducer,
 	log *logger.Logger,
 ) *AchievementService {
 	return &AchievementService{
@@ -58,31 +58,43 @@ func (s *AchievementService) CheckAndAward(ctx context.Context, userID uuid.UUID
 	switch eventType {
 	case "routes_created":
 		achievementsToCheck = []func() (string, string, bool){
-			func() (string, string, bool) { return "first_route", "Первое путешествие", stats.RoutesCreated >= 1 },
+			func() (string, string, bool) {
+				return "first_route", "Первое путешествие", stats.RoutesCreated >= 1
+			},
 			func() (string, string, bool) { return "ten_routes", "10 маршрутов", stats.RoutesCreated >= 10 },
 		}
 	case "events_done":
 		achievementsToCheck = []func() (string, string, bool){
-			func() (string, string, bool) { return "first_event", "Первое событие", stats.EventsDone >= 1 },
+			func() (string, string, bool) {
+				return "first_event", "Первое событие", stats.EventsDone >= 1
+			},
 			func() (string, string, bool) { return "ten_events", "10 событий", stats.EventsDone >= 10 },
 		}
 	case "countries_visited":
 		achievementsToCheck = []func() (string, string, bool){
-			func() (string, string, bool) { return "first_country", "Первая страна", stats.CountriesVisited >= 1 },
+			func() (string, string, bool) {
+				return "first_country", "Первая страна", stats.CountriesVisited >= 1
+			},
 			func() (string, string, bool) { return "ten_countries", "10 стран", stats.CountriesVisited >= 10 },
 		}
 	case "photos_uploaded":
 		achievementsToCheck = []func() (string, string, bool){
-			func() (string, string, bool) { return "first_photo", "Первое фото", stats.PhotosUploaded >= 1 },
+			func() (string, string, bool) {
+				return "first_photo", "Первое фото", stats.PhotosUploaded >= 1
+			},
 			func() (string, string, bool) { return "hundred_photos", "100 фото", stats.PhotosUploaded >= 100 },
 		}
 	case "followers":
 		achievementsToCheck = []func() (string, string, bool){
-			func() (string, string, bool) { return "first_follower", "Первый подписчик", stats.Followers >= 1 },
+			func() (string, string, bool) {
+				return "first_follower", "Первый подписчик", stats.Followers >= 1
+			},
 		}
 	case "following":
 		achievementsToCheck = []func() (string, string, bool){
-			func() (string, string, bool) { return "first_following", "Первая подписка", stats.Following >= 1 },
+			func() (string, string, bool) {
+				return "first_following", "Первая подписка", stats.Following >= 1
+			},
 		}
 	default:
 		s.log.Debug("Неизвестный тип события для проверки достижений", "event_type", eventType)

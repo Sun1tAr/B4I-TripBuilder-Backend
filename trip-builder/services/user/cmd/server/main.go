@@ -81,14 +81,14 @@ func main() {
 	mediaClient := media.NewClient(cfg.MediaServiceURL, log)
 	eventClient := event.NewClient(cfg.EventServiceURL, cfg.GetRetryConfig(), log)
 
-	// Инициализация Kafka продюсера для достижений (если ещё не создан)
-	achievementProducer := kafka.NewAchievementProducer(cfg.KafkaBrokers, log)
-	defer achievementProducer.Close()
+	// Инициализация Kafka продюсера для пользовательских событий
+	userProducer := kafka.NewUserProducer(cfg.KafkaBrokers, log)
+	defer userProducer.Close()
 
 	// Инициализация сервисов
-	achievementService := service.NewAchievementService(achievementRepo, statsRepo, achievementProducer, log)
+	achievementService := service.NewAchievementService(achievementRepo, statsRepo, userProducer, log)
 	statsService := service.NewStatsService(statsRepo, achievementService, log)
-	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, log)
+	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, userProducer, log) // передаём userProducer
 	followService := service.NewFollowService(followRepo, profileRepo, log)
 
 	// Инициализация хендлеров с передачей клиентов

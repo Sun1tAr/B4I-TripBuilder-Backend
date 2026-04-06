@@ -210,3 +210,34 @@ func (p *EventProducer) Close() error {
 	p.log.Debug("Закрытие EventProducer")
 	return p.producer.Close()
 }
+
+// PublishEventDeleted публикует событие об удалении поездки
+func (p *EventProducer) PublishEventDeleted(ctx context.Context, eventID, ownerID uuid.UUID) error {
+	p.log.Debug("Подготовка события event.deleted",
+		"event_id", eventID,
+		"owner_id", ownerID,
+	)
+
+	kafkaEvent := kafka.Event{
+		EventID:   uuid.New().String(),
+		EventType: "event.deleted",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"event_id":   eventID.String(),
+			"owner_id":   ownerID.String(),
+			"deleted_at": time.Now(),
+		},
+	}
+
+	err := p.producer.PublishTo(ctx, p.cfg.EventDeletedTopic, kafkaEvent)
+	if err != nil {
+		p.log.Error("Ошибка публикации event.deleted",
+			"error", err,
+			"event_id", eventID,
+		)
+		return err
+	}
+
+	p.log.Info("Событие event.deleted опубликовано", "event_id", eventID)
+	return nil
+}
