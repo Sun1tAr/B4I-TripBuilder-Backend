@@ -58,6 +58,11 @@ func main() {
 	// Routes - условно-закрытые
 	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
 
+	// Search - условно-закрытые
+	conditional.HandleFunc("/search/routes", handlers.Proxy(cfg, "search")).Methods("GET")
+	conditional.HandleFunc("/search/events", handlers.Proxy(cfg, "search")).Methods("GET")
+	conditional.HandleFunc("/search/suggest", handlers.Proxy(cfg, "search")).Methods("GET")
+
 	// ========== ЗАКРЫТЫЕ МАРШРУТЫ (требуют авторизацию) ==========
 	protected := api.PathPrefix("").Subrouter()
 	protected.Use(middleware.AuthRequired(cfg.JWTSecret, log))
@@ -137,10 +142,7 @@ func main() {
 	protected.HandleFunc("/albums/{id}/media", handlers.Proxy(cfg, "media")).Methods("POST")
 
 	// Search
-	protected.HandleFunc("/search/routes", handlers.Proxy(cfg, "search")).Methods("GET")
-	protected.HandleFunc("/search/events", handlers.Proxy(cfg, "search")).Methods("GET")
 	protected.HandleFunc("/search/users", handlers.Proxy(cfg, "search")).Methods("GET")
-	protected.HandleFunc("/search/suggest", handlers.Proxy(cfg, "search")).Methods("GET")
 
 	// Notifications
 	protected.HandleFunc("/notifications", handlers.Proxy(cfg, "notification")).Methods("GET")

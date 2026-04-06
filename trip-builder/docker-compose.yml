@@ -232,6 +232,49 @@ services:
       retries: 3
     restart: unless-stopped
 
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: ${ELASTICSEARCH_CONTAINER_NAME:-trip-builder-backend-elasticsearch} # fixme
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200" # fixme
+      - "${ELASTICSEARCH_PORT_2:-9300}:9300" # fixme
+    volumes:
+      - elasticsearch_data_${CONTOUR:-local}:/usr/share/elasticsearch/data
+    networks:
+      - trip-builder-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9200/_cluster/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  search:
+    build:
+      context: services/search/
+      dockerfile: Dockerfile
+    image: ${SEARCH_IMAGE:-trip-builder-search:local} # fixme
+    container_name: ${SEARCH_CONTAINER_NAME:-trip-builder-backend-search} # fixme
+    env_file:
+      - services/search/.env
+    ports:
+      - "${SEARCH_PORT:-8088}:8088" # fixme
+    networks:
+      - trip-builder-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge
@@ -248,4 +291,10 @@ volumes:
   minio_data_development:
     driver: local
   minio_data_production:
+    driver: local
+  elasticsearch_data_local:
+    driver: local
+  elasticsearch_data_development:
+    driver: local
+  elasticsearch_data_production:
     driver: local
