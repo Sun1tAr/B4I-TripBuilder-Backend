@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	authdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/auth"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -61,13 +61,8 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) {
 }
 
 func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Message) {
-	log := c.log.With(
-		"topic", msg.Topic,
-		"partition", msg.Partition,
-		"offset", msg.Offset,
-	)
 
-	log.Info("Получено сообщение", "value_preview", string(msg.Value[:min(100, len(msg.Value))]))
+	c.log.Info("Получено сообщение", "value_preview", string(msg.Value[:min(100, len(msg.Value))]))
 
 	// Парсим событие
 	var event struct {
@@ -78,18 +73,18 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 	}
 
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
-		log.Error("Ошибка парсинга базового события", "error", err)
+		c.log.Error("Ошибка парсинга базового события", "error", err)
 		return
 	}
 
 	// Парсим данные
 	var data authdto.UserCreatedData
 	if err := json.Unmarshal(event.Data, &data); err != nil {
-		log.Error("Ошибка парсинга данных user.created", "error", err)
+		c.log.Error("Ошибка парсинга данных user.created", "error", err)
 		return
 	}
 
-	log.Debug("Обработка user.created",
+	c.log.Debug("Обработка user.created",
 		"user_id", data.UserID,
 		"email", data.Email,
 		"first_name", data.FirstName,
@@ -97,11 +92,11 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 	)
 
 	if err := c.profileService.CreateProfile(ctx, data.UserID, data.FirstName, data.LastName); err != nil {
-		log.Error("Ошибка создания профиля", "error", err, "user_id", data.UserID)
+		c.log.Error("Ошибка создания профиля", "error", err, "user_id", data.UserID)
 		return
 	}
 
-	log.Info("Профиль обработан", "user_id", data.UserID)
+	c.log.Info("Профиль обработан", "user_id", data.UserID)
 }
 
 func (c *UserCreatedConsumer) Close() error {

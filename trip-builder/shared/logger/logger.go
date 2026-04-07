@@ -212,11 +212,7 @@ func (h *jsonHandler) Handle(ctx context.Context, r slog.Record) error {
 // WithRequestID возвращает логгер с добавленным полем request_id из контекста
 func (l *Logger) WithRequestID(ctx context.Context) *Logger {
 	if reqID, ok := ctx.Value("request_id").(string); ok && reqID != "" {
-		return &Logger{
-			Logger:      l.With(slog.String("request_id", reqID)),
-			serviceName: l.serviceName,
-			pid:         l.pid,
-		}
+		return l.With(slog.String("request_id", reqID))
 	}
 	return l
 }
@@ -231,4 +227,13 @@ func getGoroutineID() string {
 
 func (l *Logger) Trace(msg string, args ...any) {
 	l.Log(context.Background(), LevelTrace, msg, args...)
+}
+
+// With returns a new Logger with the given key-value pairs added to the context
+func (l *Logger) With(args ...any) *Logger {
+	return &Logger{
+		Logger:      l.Logger.With(args...),
+		serviceName: l.serviceName,
+		pid:         l.pid,
+	}
 }

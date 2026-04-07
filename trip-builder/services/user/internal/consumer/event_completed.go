@@ -53,25 +53,20 @@ func (c *EventCompletedConsumer) Start(ctx context.Context) {
 }
 
 func (c *EventCompletedConsumer) processMessage(ctx context.Context, msg kafka.Message) {
-	log := c.log.With(
-		"topic", msg.Topic,
-		"partition", msg.Partition,
-		"offset", msg.Offset,
-	)
 
 	var base BaseEvent
 	if err := json.Unmarshal(msg.Value, &base); err != nil {
-		log.Error("Ошибка парсинга базового события", "error", err)
+		c.log.Error("Ошибка парсинга базового события", "error", err)
 		return
 	}
 
 	var data EventCompletedData
 	if err := json.Unmarshal(base.Data, &data); err != nil {
-		log.Error("Ошибка парсинга данных event.completed", "error", err)
+		c.log.Error("Ошибка парсинга данных event.completed", "error", err)
 		return
 	}
 
-	log.Debug("Обработка event.completed",
+	c.log.Debug("Обработка event.completed",
 		"event_id", data.EventID,
 		"participants", len(data.Participants),
 		"countries", data.CountriesVisited,
@@ -80,7 +75,7 @@ func (c *EventCompletedConsumer) processMessage(ctx context.Context, msg kafka.M
 	// Обновляем статистику для каждого участника
 	for _, participantID := range data.Participants {
 		if err := c.statsService.IncrementEventsDone(ctx, participantID); err != nil {
-			log.Error("Ошибка инкремента events_done",
+			c.log.Error("Ошибка инкремента events_done",
 				"error", err,
 				"user_id", participantID,
 			)
@@ -89,7 +84,7 @@ func (c *EventCompletedConsumer) processMessage(ctx context.Context, msg kafka.M
 
 		if len(data.CountriesVisited) > 0 {
 			if err := c.statsService.IncrementCountriesVisited(ctx, participantID, len(data.CountriesVisited)); err != nil {
-				log.Error("Ошибка инкремента countries_visited",
+				c.log.Error("Ошибка инкремента countries_visited",
 					"error", err,
 					"user_id", participantID,
 				)
@@ -97,7 +92,7 @@ func (c *EventCompletedConsumer) processMessage(ctx context.Context, msg kafka.M
 		}
 	}
 
-	log.Info("Статистика участников обновлена", "event_id", data.EventID)
+	c.log.Info("Статистика участников обновлена", "event_id", data.EventID)
 }
 
 func (c *EventCompletedConsumer) Close() error {
