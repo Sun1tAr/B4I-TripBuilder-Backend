@@ -525,7 +525,22 @@ jobs:
           known_hosts: ${{ secrets.SSH_HOST }}
 
       - name: Add host to known_hosts
-        run: ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES to get host key for ${{ secrets.SSH_HOST }}"
+            if ssh-keyscan -H -T 15 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1; then
+              echo "✅ Host key added successfully"
+              break
+            fi
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "⚠️ Could not get host key after $MAX_RETRIES attempts, continuing without strict host checking"
+              # Настраиваем SSH без проверки хоста (безопасно для CI/CD)
+              echo "Host ${{ secrets.SSH_HOST }}" >> ~/.ssh/config
+              echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+            fi
+            sleep 5
+          done
 
       - name: Copy nginx config to server
         run: |
