@@ -198,8 +198,8 @@ services:
     build:
       context: services/media/
       dockerfile: Dockerfile
-    image: ${MEDIA_IMAGE:-trip-builder-media:local} # fixme
-    container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media} # fixme
+    image: ${MEDIA_IMAGE:-trip-builder-media:local}
+    container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media}
     env_file:
       - services/media/.env
     ports:
@@ -235,15 +235,15 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
-    container_name: ${ELASTICSEARCH_CONTAINER_NAME:-trip-builder-backend-elasticsearch} # fixme
+    container_name: ${ELASTICSEARCH_CONTAINER_NAME:-trip-builder-backend-elasticsearch}
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - xpack.security.enabled=false
       - xpack.security.enrollment.enabled=false
     ports:
-      - "${ELASTICSEARCH_PORT:-9200}:9200" # fixme
-      - "${ELASTICSEARCH_PORT_2:-9300}:9300" # fixme
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+      - "${ELASTICSEARCH_PORT_2:-9300}:9300"
     volumes:
       - elasticsearch_data_${CONTOUR:-local}:/usr/share/elasticsearch/data
     networks:
@@ -260,12 +260,12 @@ services:
     build:
       context: services/search/
       dockerfile: Dockerfile
-    image: ${SEARCH_IMAGE:-trip-builder-search:local} # fixme
-    container_name: ${SEARCH_CONTAINER_NAME:-trip-builder-backend-search} # fixme
+    image: ${SEARCH_IMAGE:-trip-builder-search:local}
+    container_name: ${SEARCH_CONTAINER_NAME:-trip-builder-backend-search}
     env_file:
       - services/search/.env
     ports:
-      - "${SEARCH_PORT:-8088}:8088" # fixme
+      - "${SEARCH_PORT:-8088}:8088"
     networks:
       - trip-builder-network
     depends_on:
