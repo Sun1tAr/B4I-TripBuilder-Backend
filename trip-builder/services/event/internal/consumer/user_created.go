@@ -67,11 +67,6 @@ func (c *UserCreatedConsumer) Start(ctx context.Context) {
 }
 
 func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Message) {
-	log := c.log.With(
-		"topic", msg.Topic,
-		"partition", msg.Partition,
-		"offset", msg.Offset,
-	)
 
 	// Парсим событие
 	var baseEvent struct {
@@ -81,24 +76,24 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 		Data      json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(msg.Value, &baseEvent); err != nil {
-		log.Error("Ошибка парсинга базового события", "error", err)
+		c.log.Error("Ошибка парсинга базового события", "error", err)
 		return
 	}
 
 	// Проверяем тип события
 	if baseEvent.EventType != "user.created" {
-		log.Debug("Пропуск события другого типа", "event_type", baseEvent.EventType)
+		c.log.Debug("Пропуск события другого типа", "event_type", baseEvent.EventType)
 		return
 	}
 
 	// Парсим данные
 	var data authdto.UserCreatedData
 	if err := json.Unmarshal(baseEvent.Data, &data); err != nil {
-		log.Error("Ошибка парсинга данных user.created", "error", err)
+		c.log.Error("Ошибка парсинга данных user.created", "error", err)
 		return
 	}
 
-	log.Debug("Обработка user.created",
+	c.log.Debug("Обработка user.created",
 		"user_id", data.UserID,
 		"email", data.Email,
 	)
@@ -106,16 +101,16 @@ func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Mess
 	// Находим все приглашения с этим email
 	invites, err := c.participantRepo.FindByInvitedEmail(ctx, data.Email)
 	if err != nil {
-		log.Error("Ошибка поиска приглашений по email", "error", err, "email", data.Email)
+		c.log.Error("Ошибка поиска приглашений по email", "error", err, "email", data.Email)
 		return
 	}
 
 	// Связываем каждое приглашение с пользователем
 	for _, invite := range invites {
 		if err := c.participantRepo.LinkInvitation(ctx, invite.InviteID, data.UserID); err != nil {
-			log.Error("Ошибка связывания приглашения", "error", err, "invite_id", invite.InviteID, "user_id", data.UserID)
+			c.log.Error("Ошибка связывания приглашения", "error", err, "invite_id", invite.InviteID, "user_id", data.UserID)
 		} else {
-			log.Info("Приглашение связано с пользователем", "invite_id", invite.InviteID, "user_id", data.UserID, "email", data.Email)
+			c.log.Info("Приглашение связано с пользователем", "invite_id", invite.InviteID, "user_id", data.UserID, "email", data.Email)
 		}
 	}
 }

@@ -53,32 +53,27 @@ func (c *RouteCreatedConsumer) Start(ctx context.Context) {
 }
 
 func (c *RouteCreatedConsumer) processMessage(ctx context.Context, msg kafka.Message) {
-	log := c.log.With(
-		"topic", msg.Topic,
-		"partition", msg.Partition,
-		"offset", msg.Offset,
-	)
 
 	var base BaseEvent
 	if err := json.Unmarshal(msg.Value, &base); err != nil {
-		log.Error("Ошибка парсинга базового события", "error", err)
+		c.log.Error("Ошибка парсинга базового события", "error", err)
 		return
 	}
 
 	var data RouteCreatedData
 	if err := json.Unmarshal(base.Data, &data); err != nil {
-		log.Error("Ошибка парсинга данных route.created", "error", err)
+		c.log.Error("Ошибка парсинга данных route.created", "error", err)
 		return
 	}
 
-	log.Debug("Обработка route.created", "user_id", data.UserID, "route_id", data.RouteID)
+	c.log.Debug("Обработка route.created", "user_id", data.UserID, "route_id", data.RouteID)
 
 	if err := c.statsService.IncrementRoutesCreated(ctx, data.UserID); err != nil {
-		log.Error("Ошибка инкремента routes_created", "error", err, "user_id", data.UserID)
+		c.log.Error("Ошибка инкремента routes_created", "error", err, "user_id", data.UserID)
 		return
 	}
 
-	log.Info("routes_created увеличен", "user_id", data.UserID)
+	c.log.Info("routes_created увеличен", "user_id", data.UserID)
 }
 
 func (c *RouteCreatedConsumer) Close() error {

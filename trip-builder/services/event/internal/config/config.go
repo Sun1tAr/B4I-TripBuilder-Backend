@@ -23,6 +23,7 @@ type Config struct {
 	WaypointVisitedTopic   string `envconfig:"KAFKA_TOPIC_WAYPOINT_VISITED" default:"waypoint.visited"`
 	ParticipantJoinedTopic string `envconfig:"KAFKA_TOPIC_PARTICIPANT_JOINED" default:"event.participant_joined"`
 	UserCreatedTopic       string `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
+	EventDeletedTopic      string `envconfig:"KAFKA_TOPIC_EVENT_DELETED" default:"event.deleted"`
 
 	// URL других сервисов
 	RouteServiceURL string `envconfig:"ROUTE_SERVICE_URL" required:"true"`

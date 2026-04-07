@@ -240,11 +240,17 @@ func (s *EventService) DeleteEvent(ctx context.Context, eventID, userID uuid.UUI
 		return err
 	}
 
-	// Публикуем событие
+	// Публикуем событие об отмене
 	if err := s.producer.PublishEventCancelled(ctx, eventID, userID); err != nil {
-		s.log.Error("DeleteEvent: ошибка публикации события", "error", err)
+		s.log.Error("DeleteEvent: ошибка публикации event.cancelled", "error", err)
 	}
 
+	// Публикуем событие об удалении (для поискового индекса и других сервисов)
+	if err := s.producer.PublishEventDeleted(ctx, eventID, userID); err != nil {
+		s.log.Error("DeleteEvent: ошибка публикации event.deleted", "error", err)
+	}
+
+	s.log.Info("DeleteEvent: поездка отменена и помечена как удалённая", "event_id", eventID)
 	return nil
 }
 

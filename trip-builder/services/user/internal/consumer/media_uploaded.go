@@ -53,32 +53,27 @@ func (c *MediaUploadedConsumer) Start(ctx context.Context) {
 }
 
 func (c *MediaUploadedConsumer) processMessage(ctx context.Context, msg kafka.Message) {
-	log := c.log.With(
-		"topic", msg.Topic,
-		"partition", msg.Partition,
-		"offset", msg.Offset,
-	)
 
 	var base BaseEvent
 	if err := json.Unmarshal(msg.Value, &base); err != nil {
-		log.Error("Ошибка парсинга базового события", "error", err)
+		c.log.Error("Ошибка парсинга базового события", "error", err)
 		return
 	}
 
 	var data MediaUploadedData
 	if err := json.Unmarshal(base.Data, &data); err != nil {
-		log.Error("Ошибка парсинга данных media.uploaded", "error", err)
+		c.log.Error("Ошибка парсинга данных media.uploaded", "error", err)
 		return
 	}
 
-	log.Debug("Обработка media.uploaded", "user_id", data.UserID, "media_id", data.MediaID)
+	c.log.Debug("Обработка media.uploaded", "user_id", data.UserID, "media_id", data.MediaID)
 
 	if err := c.statsService.IncrementPhotosUploaded(ctx, data.UserID); err != nil {
-		log.Error("Ошибка инкремента photos_uploaded", "error", err, "user_id", data.UserID)
+		c.log.Error("Ошибка инкремента photos_uploaded", "error", err, "user_id", data.UserID)
 		return
 	}
 
-	log.Info("photos_uploaded увеличен", "user_id", data.UserID)
+	c.log.Info("photos_uploaded увеличен", "user_id", data.UserID)
 }
 
 func (c *MediaUploadedConsumer) Close() error {

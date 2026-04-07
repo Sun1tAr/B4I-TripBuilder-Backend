@@ -39,7 +39,7 @@ jobs:
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       # jDoc сервисы
-      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media"]'
+      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media", "search"]'
 
       auth_port: 9101
       auth_container_name: trip-builder-backend-auth-dev
@@ -71,6 +71,7 @@ jobs:
         "user.deleted", 
         "route.created", 
         "event.completed", 
+        "event.deleted",
         "media.uploaded", 
         "user.events.retry", 
         "user.events.dlq", 
@@ -83,7 +84,8 @@ jobs:
         "event.cancelled", 
         "waypoint.visited", 
         "task.completed",
-        "event.participant_joined"
+        "event.participant_joined",
+        "event.deleted"
         ]'
 
       route_port: 9103
@@ -106,6 +108,13 @@ jobs:
       minio_container_name: minio-dev
       minio_user: minio_user
       minio_password: minio_pass_dev
+
+      search_port: 9108
+      search_container_name: trip-builder-backend-search-dev
+
+      elasticsearch_container_name: elasticsearch-dev
+      elasticsearch_port_1: 9211
+      elasticsearch_port_2: 9311
 
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}

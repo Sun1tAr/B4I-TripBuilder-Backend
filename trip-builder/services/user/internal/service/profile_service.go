@@ -6,6 +6,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/repository"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/kafka"
 	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ type ProfileService struct {
 	profileRepo     repository.ProfileRepository
 	statsRepo       repository.StatsRepository
 	achievementRepo repository.AchievementRepository
+	userProducer    *kafka.UserProducer
 	log             *logger.Logger
 }
 
@@ -26,12 +28,14 @@ func NewProfileService(
 	profileRepo repository.ProfileRepository,
 	statsRepo repository.StatsRepository,
 	achievementRepo repository.AchievementRepository,
+	userProducer *kafka.UserProducer,
 	log *logger.Logger,
 ) *ProfileService {
 	return &ProfileService{
 		profileRepo:     profileRepo,
 		statsRepo:       statsRepo,
 		achievementRepo: achievementRepo,
+		userProducer:    userProducer,
 		log:             log,
 	}
 }
@@ -86,6 +90,8 @@ func (s *ProfileService) GetPublicProfile(ctx context.Context, userID uuid.UUID)
 
 // UpdateProfile обновление профиля
 func (s *ProfileService) UpdateProfile(ctx context.Context, userID uuid.UUID, updates *userdto.UpdateProfileRequest) error {
+	s.log.Debug("UpdateProfile: обновление профиля", "user_id", userID)
+
 	exists, err := s.profileRepo.Exists(ctx, userID)
 	if err != nil {
 		return err
@@ -94,21 +100,54 @@ func (s *ProfileService) UpdateProfile(ctx context.Context, userID uuid.UUID, up
 		return ErrProfileNotFound
 	}
 
+	// Получаем старые данные для сравнения
+	oldProfile, err := s.profileRepo.GetByID(ctx, userID)
+	if err != nil {
+		s.log.Error("UpdateProfile: ошибка получения старого профиля", "error", err)
+		// продолжаем, но без публикации
+	}
+
 	modelUpdates := &models.UpdateProfileRequest{
-		FirstName:           updates.FirstName,
-		LastName:            updates.LastName,
-		Bio:                 updates.Bio,
-		Phone:               updates.Phone,
-		Language:            updates.Language,
-		Timezone:            updates.Timezone,
+		FirstName:            updates.FirstName,
+		LastName:             updates.LastName,
+		Bio:                  updates.Bio,
+		Phone:                updates.Phone,
+		Language:             updates.Language,
+		Timezone:             updates.Timezone,
 		NotificationsEnabled: updates.NotificationsEnabled,
 	}
 
-	return s.profileRepo.Update(ctx, userID, modelUpdates)
+	if err := s.profileRepo.Update(ctx, userID, modelUpdates); err != nil {
+		return err
+	}
+
+	// Публикуем событие об обновлении, если есть изменения в важных полях
+	if s.userProducer != nil && oldProfile != nil {
+		firstName := oldProfile.FirstName
+		if updates.FirstName != nil {
+			firstName = *updates.FirstName
+		}
+		lastName := oldProfile.LastName
+		if updates.LastName != nil {
+			lastName = *updates.LastName
+		}
+		avatarURL := oldProfile.AvatarURL
+		// avatarURL может обновиться отдельно через UploadAvatar
+
+		if err := s.userProducer.PublishUserUpdated(ctx, userID, firstName, lastName, avatarURL); err != nil {
+			s.log.Error("UpdateProfile: ошибка публикации user.updated", "error", err)
+			// не фатально
+		}
+	}
+
+	s.log.Info("UpdateProfile: профиль обновлён", "user_id", userID)
+	return nil
 }
 
 // UpdateAvatar обновление аватара
 func (s *ProfileService) UpdateAvatar(ctx context.Context, userID uuid.UUID, avatarURL string) error {
+	s.log.Debug("UpdateAvatar: обновление аватара", "user_id", userID)
+
 	exists, err := s.profileRepo.Exists(ctx, userID)
 	if err != nil {
 		return err
@@ -116,5 +155,24 @@ func (s *ProfileService) UpdateAvatar(ctx context.Context, userID uuid.UUID, ava
 	if !exists {
 		return ErrProfileNotFound
 	}
-	return s.profileRepo.UpdateAvatar(ctx, userID, avatarURL)
+
+	// Получаем старые данные для публикации
+	oldProfile, err := s.profileRepo.GetByID(ctx, userID)
+	if err != nil {
+		s.log.Error("UpdateAvatar: ошибка получения старого профиля", "error", err)
+	}
+
+	if err := s.profileRepo.UpdateAvatar(ctx, userID, avatarURL); err != nil {
+		return err
+	}
+
+	// Публикуем событие об обновлении
+	if s.userProducer != nil && oldProfile != nil {
+		if err := s.userProducer.PublishUserUpdated(ctx, userID, oldProfile.FirstName, oldProfile.LastName, avatarURL); err != nil {
+			s.log.Error("UpdateAvatar: ошибка публикации user.updated", "error", err)
+		}
+	}
+
+	s.log.Info("UpdateAvatar: аватар обновлён", "user_id", userID, "avatar_url", avatarURL)
+	return nil
 }
