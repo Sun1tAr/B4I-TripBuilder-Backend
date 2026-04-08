@@ -119,6 +119,7 @@ services:
       - services/gateway/.env
     ports:
       - "${GATEWAY_PORT:-8090}:8090"
+      - "${GATEWAY_WS_PORT:-8091}:8091"
     networks:
       - trip-builder-network
     restart: unless-stopped
@@ -187,6 +188,7 @@ services:
       - services/chat/.env
     ports:
       - "${CHAT_PORT:-8086}:8086"
+      - "${CHAT_WS_PORT:-8088}:8088"
     networks:
       - trip-builder-network
     depends_on:

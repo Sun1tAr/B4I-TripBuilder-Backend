@@ -104,6 +104,10 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("WebSocket: ошибка апгрейда", "error", err)
 		return
 	}
+	defer func() {
+		h.log.Info("WebSocket: соединение закрыто", "user_id", userID, "event_id", eventID)
+		conn.Close()
+	}()
 
 	clientID := uuid.New().String()
 	client := &Client{

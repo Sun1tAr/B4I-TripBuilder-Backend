@@ -42,6 +42,8 @@ func main() {
 		Format:      cfg.LogFormat,
 	})
 
+	log.Info("Запуск Chat Service", "http_port", cfg.HTTPPort, "ws_port", cfg.WSPort)
+
 	// Подключение к БД
 	db, err := sql.Open("postgres", cfg.Database.DSN())
 	if err != nil {
@@ -122,63 +124,100 @@ func main() {
 		}
 	}
 
-	// Роутер
-	r := mux.NewRouter()
+	// ========== HTTP СЕРВЕР (REST API) ==========
+	httpRouter := mux.NewRouter()
 
 	// Публичные health-эндпоинты
-	r.HandleFunc("/health", handlers.Health).Methods("GET")
-	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	httpRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+	httpRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
 
 	// API роутер с префиксом /api/v1/chat
-	api := r.PathPrefix("/api/v1/chat").Subrouter()
-	api.Use(middleware.Auth(log))
+	httpAPI := httpRouter.PathPrefix("/api/v1/chat").Subrouter()
+	httpAPI.Use(middleware.Auth(log))
 
 	chatHandler := handlers.NewChatHandler(chatService, log)
 
 	// REST маршруты
-	api.HandleFunc("/events/{id}/messages", chatHandler.GetMessages).Methods("GET")
-	api.HandleFunc("/events/{id}/messages", chatHandler.SendMessage).Methods("POST")
-	api.HandleFunc("/events/{id}/unread", chatHandler.GetUnreadCount).Methods("GET")
-	api.HandleFunc("/messages/{id}", chatHandler.UpdateMessage).Methods("PUT")
-	api.HandleFunc("/messages/{id}", chatHandler.DeleteMessage).Methods("DELETE")
+	httpAPI.HandleFunc("/events/{id}/messages", chatHandler.GetMessages).Methods("GET")
+	httpAPI.HandleFunc("/events/{id}/messages", chatHandler.SendMessage).Methods("POST")
+	httpAPI.HandleFunc("/events/{id}/unread", chatHandler.GetUnreadCount).Methods("GET")
+	httpAPI.HandleFunc("/messages/{id}", chatHandler.UpdateMessage).Methods("PUT")
+	httpAPI.HandleFunc("/messages/{id}", chatHandler.DeleteMessage).Methods("DELETE")
 
-	// WebSocket маршрут (тоже внутри /api/v1/chat)
-	api.HandleFunc("/ws/events/{event_id}", wsHandler.ServeWS).Methods("GET")
+	// Middleware для HTTP сервера
+	httpHandler := sharedMiddleware.RequestID(httpRouter)
+	httpHandler = sharedMiddleware.Logging(log)(httpHandler)
+	httpHandler = sharedMiddleware.Recover(log)(httpHandler)
 
-	// Общие middleware
-	handler := sharedMiddleware.RequestID(r)
-	handler = sharedMiddleware.Logging(log)(handler)
-	handler = sharedMiddleware.Recover(log)(handler)
-
-	srv := &http.Server{
+	httpSrv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
-		Handler:      handler,
+		Handler:      httpHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Graceful shutdown
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	// ========== WEBSOCKET СЕРВЕР ==========
+	wsRouter := mux.NewRouter()
 
+	// Публичные health-эндпоинты
+	wsRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+	wsRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
+
+	// API роутер с префиксом /api/v1/chat
+	wsAPI := wsRouter.PathPrefix("/api/v1/chat").Subrouter()
+	wsAPI.Use(middleware.Auth(log))
+
+	// WebSocket маршрут
+	wsAPI.HandleFunc("/ws/events/{event_id}", wsHandler.ServeWS).Methods("GET")
+
+	// Middleware для WebSocket сервера
+	wsHandlerMiddleware := sharedMiddleware.RequestID(wsRouter)
+	wsHandlerMiddleware = sharedMiddleware.Logging(log)(wsHandlerMiddleware)
+	wsHandlerMiddleware = sharedMiddleware.Recover(log)(wsHandlerMiddleware)
+
+	wsSrv := &http.Server{
+		Addr:         ":" + cfg.WSPort,
+		Handler:      wsHandlerMiddleware,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// ========== ЗАПУСК СЕРВЕРОВ ==========
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("Ошибка запуска сервера", "error", err)
+		log.Info("HTTP сервер запущен", "port", cfg.HTTPPort)
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("Ошибка HTTP сервера", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	log.Info("Сервер запущен", "port", cfg.HTTPPort)
+	go func() {
+		log.Info("WebSocket сервер запущен", "port", cfg.WSPort)
+		if err := wsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("Ошибка WebSocket сервера", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Graceful shutdown
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
 	<-done
-	log.Info("Получен сигнал завершения, останавливаемся")
+	log.Info("Получен сигнал завершения, останавливаем серверы")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("Ошибка при graceful shutdown", "error", err)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("Ошибка при остановке HTTP сервера", "error", err)
 	}
 
-	log.Info("Сервер остановлен")
+	if err := wsSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("Ошибка при остановке WebSocket сервера", "error", err)
+	}
+
+	log.Info("Серверы остановлены")
 }

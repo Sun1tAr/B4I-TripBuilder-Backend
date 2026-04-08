@@ -77,7 +77,7 @@ func Proxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 	}
 }
 
-// WebSocketProxy проксирует WebSocket соединение к целевому сервису
+// WebSocketProxy проксирует WebSocket соединение (для отдельного порта)
 func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log := logger.New(logger.Options{
@@ -89,26 +89,24 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 		var targetURL string
 		switch serviceName {
 		case "chat":
-			targetURL = cfg.Services.ChatURL
+			targetURL = cfg.Services.ChatWSURL // Используем WS URL
 		default:
 			WriteError(w, http.StatusInternalServerError, "unknown service for websocket", serviceName)
 			return
 		}
 
-		// Извлекаем токен из query-параметра
+		// Извлекаем токен
 		token := r.URL.Query().Get("token")
 		if token == "" {
-			// Fallback: пробуем из заголовка (для совместимости)
 			token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		}
 
 		if token == "" {
-			log.Warn("WebSocketProxy: token not found in query or header")
+			log.Warn("WebSocketProxy: token not found")
 			WriteError(w, http.StatusUnauthorized, "unauthorized", "missing token")
 			return
 		}
 
-		// Валидируем токен через Auth Service
 		userID, err := validateToken(token, cfg.JWTSecret)
 		if err != nil {
 			log.Warn("WebSocketProxy: invalid token", "error", err)
@@ -116,21 +114,17 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 			return
 		}
 
-		// Строим целевой URL для WebSocket
-		target := strings.Replace(targetURL, "http://", "ws://", 1)
-		target = strings.Replace(target, "https://", "wss://", 1)
-
-		path := r.URL.Path
-		wsURL := target + path
+		// Строим целевой URL (уже WS, не нужно заменять http:// на ws://)
+		wsURL := targetURL + r.URL.Path
 		if r.URL.RawQuery != "" {
 			wsURL += "?" + r.URL.RawQuery
 		}
-		// Убираем token из query, чтобы не светился в логах
+		// Убираем token из query
 		wsURL = strings.Replace(wsURL, "token="+token, "", -1)
 		wsURL = strings.TrimSuffix(wsURL, "?&")
 		wsURL = strings.TrimSuffix(wsURL, "&?")
 
-		log.Info("WebSocketProxy: проксирование", "from", r.URL.Path, "to", wsURL, "user_id", userID)
+		log.Info("WebSocketProxy: проксирование", "to", wsURL, "user_id", userID)
 
 		dialer := websocket.Dialer{}
 		headers := http.Header{}
@@ -138,7 +132,7 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 
 		targetConn, _, err := dialer.Dial(wsURL, headers)
 		if err != nil {
-			log.Error("WebSocketProxy: ошибка подключения", "error", err, "url", wsURL)
+			log.Error("WebSocketProxy: ошибка подключения", "error", err)
 			WriteError(w, http.StatusBadGateway, "failed to connect to upstream", err.Error())
 			return
 		}
@@ -151,18 +145,14 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 		}
 		defer clientConn.Close()
 
-		// Проксируем сообщения
-		errChan := make(chan error, 2)
-
+		// Проксирование сообщений
 		go func() {
 			for {
 				msgType, msg, err := clientConn.ReadMessage()
 				if err != nil {
-					errChan <- err
 					return
 				}
 				if err := targetConn.WriteMessage(msgType, msg); err != nil {
-					errChan <- err
 					return
 				}
 			}
@@ -172,17 +162,16 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 			for {
 				msgType, msg, err := targetConn.ReadMessage()
 				if err != nil {
-					errChan <- err
 					return
 				}
 				if err := clientConn.WriteMessage(msgType, msg); err != nil {
-					errChan <- err
 					return
 				}
 			}
 		}()
 
-		<-errChan
+		// Держим соединение открытым
+		select {}
 	}
 }
 

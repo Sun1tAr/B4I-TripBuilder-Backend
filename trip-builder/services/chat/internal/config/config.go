@@ -31,6 +31,8 @@ type Config struct {
 	// Настройки миграций
 	MigrationEnabled bool `envconfig:"MIGRATION_ENABLED" default:"true"`
 
+	WSPort string `envconfig:"WS_PORT" default:"8088"`
+
 	// Таймауты
 	HTTPClientTimeout time.Duration `envconfig:"HTTP_CLIENT_TIMEOUT" default:"10s"`
 
