@@ -10,8 +10,6 @@ import (
 )
 
 // AuthOptional – условная авторизация
-// Если есть X-User-ID – кладём в контекст
-// Если нет – продолжаем как аноним
 func AuthOptional(log *logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -19,13 +17,14 @@ func AuthOptional(log *logger.Logger) func(http.Handler) http.Handler {
 
 			userID := r.Header.Get("X-User-ID")
 			if userID != "" {
-				log.Debug("AuthOptional: user authenticated", "user_id", userID)
+				log.Debug("AuthOptional: пользователь идентифицирован", "user_id", userID)
 				ctx := context.WithValue(r.Context(), "user_id", userID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
+			} else {
+				log.Debug("AuthOptional: анонимный доступ", "headers", r.Header)
 			}
 
-			log.Debug("AuthOptional: anonymous access")
 			next.ServeHTTP(w, r)
 		})
 	}

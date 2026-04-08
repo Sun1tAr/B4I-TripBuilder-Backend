@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/search/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/search/internal/service"
@@ -13,11 +14,11 @@ import (
 )
 
 type SearchHandler struct {
-	searchService *service.SearchService
+	searchService service.SearchServiceInterface
 	log           *logger.Logger
 }
 
-func NewSearchHandler(searchService *service.SearchService, log *logger.Logger) *SearchHandler {
+func NewSearchHandler(searchService service.SearchServiceInterface, log *logger.Logger) *SearchHandler {
 	return &SearchHandler{
 		searchService: searchService,
 		log:           log,
@@ -27,10 +28,7 @@ func NewSearchHandler(searchService *service.SearchService, log *logger.Logger) 
 func (h *SearchHandler) writeError(w http.ResponseWriter, status int, err string, details string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(commondto.ErrorResponse{
-		Error:   err,
-		Details: details,
-	})
+	json.NewEncoder(w).Encode(commondto.ErrorResponse{Error: err, Details: details})
 }
 
 func (h *SearchHandler) writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -39,18 +37,15 @@ func (h *SearchHandler) writeJSON(w http.ResponseWriter, status int, data interf
 	json.NewEncoder(w).Encode(data)
 }
 
-func (h *SearchHandler) getUserIDFromContext(r *http.Request) string {
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok {
-		return ""
+func (h *SearchHandler) getUserID(r *http.Request) string {
+	if id, ok := r.Context().Value("user_id").(string); ok {
+		return id
 	}
-	return userID
+	return ""
 }
 
-// SearchRoutes поиск маршрутов
 func (h *SearchHandler) SearchRoutes(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	log.Debug("SearchRoutes: запрос")
 
 	query := r.URL.Query().Get("q")
 	country := r.URL.Query().Get("country")
@@ -86,8 +81,6 @@ func (h *SearchHandler) SearchRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	userID := h.getUserIDFromContext(r) // может быть пустым
-
 	req := &models.RouteSearchRequest{
 		Query:        query,
 		Country:      country,
@@ -97,23 +90,23 @@ func (h *SearchHandler) SearchRoutes(w http.ResponseWriter, r *http.Request) {
 		Sort:         sort,
 		Page:         page,
 		Size:         size,
-		UserID:       userID, // добавляем поле
+		UserID:       h.getUserID(r),
 	}
 
+	start := time.Now()
 	resp, err := h.searchService.SearchRoutes(r.Context(), req)
+	log.Debug("SearchRoutes completed", "duration", time.Since(start), "total", resp.Total)
+
 	if err != nil {
 		log.Error("Ошибка поиска маршрутов", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "search failed", err.Error())
 		return
 	}
-
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
-// SearchEvents поиск публичных поездок
 func (h *SearchHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	log.Debug("SearchEvents: запрос")
 
 	query := r.URL.Query().Get("q")
 	status := r.URL.Query().Get("status")
@@ -143,14 +136,11 @@ func (h *SearchHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "search failed", err.Error())
 		return
 	}
-
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
-// SearchUsers поиск пользователей
 func (h *SearchHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	log.Debug("SearchUsers: запрос")
 
 	query := r.URL.Query().Get("q")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -175,14 +165,11 @@ func (h *SearchHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "search failed", err.Error())
 		return
 	}
-
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
-// Suggest автодополнение
 func (h *SearchHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	log.Debug("Suggest: запрос")
 
 	query := r.URL.Query().Get("q")
 	suggestType := r.URL.Query().Get("type")
@@ -196,32 +183,35 @@ func (h *SearchHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 		size = 10
 	}
 
-	resp, err := h.searchService.Suggest(r.Context(), query, suggestType, size)
+	req := &models.SuggestRequest{
+		Query: query,
+		Type:  suggestType,
+		Size:  size,
+	}
+
+	resp, err := h.searchService.Suggest(r.Context(), req)
 	if err != nil {
 		log.Error("Ошибка автодополнения", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "suggest failed", err.Error())
 		return
 	}
-
 	h.writeJSON(w, http.StatusOK, resp)
 }
 
-// SyncFullReindex принудительная переиндексация (защищённая ручка)
 func (h *SearchHandler) SyncFullReindex(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 
-	// Проверяем авторизацию (только для внутреннего использования)
-	userID := h.getUserIDFromContext(r)
+	userID := h.getUserID(r)
 	if userID == "" {
 		log.Warn("SyncFullReindex: неавторизованный доступ")
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
 		return
 	}
 
-	log.Info("Запуск принудительной переиндексации", "user_id", userID)
+	log.Info("Запуск принудительной реиндексации ES", "user_id", userID)
 
-	if err := h.searchService.FullReindex(r.Context()); err != nil {
-		log.Error("Ошибка принудительной переиндексации", "error", err)
+	if err := h.searchService.FullReindexES(r.Context()); err != nil {
+		log.Error("Ошибка реиндексации", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "reindex failed", err.Error())
 		return
 	}

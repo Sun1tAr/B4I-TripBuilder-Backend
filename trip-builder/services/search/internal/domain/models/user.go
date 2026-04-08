@@ -1,22 +1,18 @@
 package models
 
-// UserDocument структура для индекса Elasticsearch
 type UserDocument struct {
-	ID        string   `json:"id"`
-	FirstName string   `json:"first_name"`
-	LastName  string   `json:"last_name"`
-	Bio       string   `json:"bio,omitempty"`
-	Suggest   []string `json:"suggest"` // для completion suggester
+	ID        string `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Bio       string `json:"bio,omitempty"`
 }
 
-// UserSearchRequest параметры поиска пользователей
 type UserSearchRequest struct {
 	Query string `json:"q"`
 	Page  int    `json:"page"`
 	Size  int    `json:"size"`
 }
 
-// UserSearchResponse результат поиска
 type UserSearchResponse struct {
 	Items      []UserHit `json:"items"`
 	Total      int64     `json:"total"`

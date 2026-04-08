@@ -1,10 +1,7 @@
 package models
 
-import (
-	"time"
-)
+import "time"
 
-// EventDocument структура для индекса Elasticsearch
 type EventDocument struct {
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
@@ -13,21 +10,15 @@ type EventDocument struct {
 	Status         string    `json:"status"`
 	ParticipantIDs []string  `json:"participant_ids"`
 	IsPublic       bool      `json:"is_public"`
-	Suggest        []string  `json:"suggest"` // для completion suggester
 }
 
-// EventSearchRequest параметры поиска поездок
 type EventSearchRequest struct {
-	Query         string     `json:"q"`
-	Country       string     `json:"country,omitempty"`
-	Status        string     `json:"status,omitempty"`
-	StartDateFrom *time.Time `json:"start_date_from,omitempty"`
-	StartDateTo   *time.Time `json:"start_date_to,omitempty"`
-	Page          int        `json:"page"`
-	Size          int        `json:"size"`
+	Query  string `json:"q"`
+	Status string `json:"status,omitempty"`
+	Page   int    `json:"page"`
+	Size   int    `json:"size"`
 }
 
-// EventSearchResponse результат поиска
 type EventSearchResponse struct {
 	Items      []EventHit `json:"items"`
 	Total      int64      `json:"total"`

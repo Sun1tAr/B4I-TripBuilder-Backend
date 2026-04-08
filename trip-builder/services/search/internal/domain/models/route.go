@@ -1,10 +1,7 @@
 package models
 
-import (
-	"time"
-)
+import "time"
 
-// RouteDocument структура для индекса Elasticsearch
 type RouteDocument struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
@@ -16,23 +13,20 @@ type RouteDocument struct {
 	LikesCount  int       `json:"likes_count"`
 	IsPublic    bool      `json:"is_public"`
 	CreatedAt   time.Time `json:"created_at"`
-	Suggest     []string  `json:"suggest"`
 }
 
-// RouteSearchRequest параметры поиска маршрутов
 type RouteSearchRequest struct {
 	Query        string   `json:"q"`
 	Country      string   `json:"country,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
 	DurationFrom *int     `json:"duration_from,omitempty"`
 	DurationTo   *int     `json:"duration_to,omitempty"`
-	Sort         string   `json:"sort"` // relevance, date, likes
+	Sort         string   `json:"sort"`
 	Page         int      `json:"page"`
 	Size         int      `json:"size"`
-	UserID       string   `json:"-"` // для фильтрации приватных маршрутов
+	UserID       string   `json:"-"`
 }
 
-// RouteSearchResponse результат поиска
 type RouteSearchResponse struct {
 	Items      []RouteHit `json:"items"`
 	Total      int64      `json:"total"`
