@@ -39,7 +39,7 @@ jobs:
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       # jDoc сервисы
-      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media", "search"]'
+      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media"]'
 
       auth_port: 9001
       auth_container_name: trip-builder-backend-auth-test
@@ -108,13 +108,6 @@ jobs:
       minio_container_name: minio-test
       minio_user: minio_user
       minio_password: minio_pass_test
-
-      search_port: 9008
-      search_container_name: trip-builder-backend-search-test
-
-      elasticsearch_container_name: elasticsearch-test
-      elasticsearch_port_1: 9201
-      elasticsearch_port_2: 9301
 
 
     secrets:
