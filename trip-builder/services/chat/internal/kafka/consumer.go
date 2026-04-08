@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -55,13 +56,23 @@ func (c *SystemEventConsumer) Start(ctx context.Context) {
 			c.log.Info("Остановка consumer", "topic", c.topic)
 			return
 		default:
-			msg, err := c.reader.ReadMessage(ctx)
+			msg, err := c.reader.FetchMessage(ctx) // Используем FetchMessage вместо ReadMessage
 			if err != nil {
+				// Если reader закрыт, выходим
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				c.log.Error("Ошибка чтения сообщения", "error", err)
+				time.Sleep(time.Second) // Не спамим ошибками
 				continue
 			}
 
 			c.processMessage(ctx, msg)
+
+			// Ручной коммит
+			if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				c.log.Error("Ошибка коммита", "error", err)
+			}
 		}
 	}
 }

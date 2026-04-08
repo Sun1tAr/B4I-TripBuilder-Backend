@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
@@ -45,13 +46,23 @@ func (c *EventCompletedConsumer) Start(ctx context.Context) {
 			c.log.Info("Остановка consumer", "topic", c.reader.Config().Topic)
 			return
 		default:
-			msg, err := c.reader.ReadMessage(ctx)
+			msg, err := c.reader.FetchMessage(ctx) // Используем FetchMessage вместо ReadMessage
 			if err != nil {
+				// Если reader закрыт, выходим
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				c.log.Error("Ошибка чтения сообщения", "error", err)
+				time.Sleep(time.Second) // Не спамим ошибками
 				continue
 			}
 
 			c.processMessage(ctx, msg)
+
+			// Ручной коммит
+			if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				c.log.Error("Ошибка коммита", "error", err)
+			}
 		}
 	}
 }
