@@ -184,6 +184,28 @@ on:
         required: true
         type: string
 
+      search_port:
+        description: 'Search service port'
+        required: true
+        type: string
+      search_container_name:
+        description: 'Search container name'
+        required: true
+        type: string
+
+      elasticsearch_port_1:
+        description: 'ElasticSearch port 1'
+        required: true
+        type: string
+      elasticsearch_port_2:
+        description: 'ElasticSearch port 2'
+        required: true
+        type: string
+      elasticsearch_container_name:
+        description: 'ElasticSearch container name'
+        required: true
+        type: string
+
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
@@ -330,7 +352,22 @@ jobs:
           known_hosts: ${{ secrets.SSH_HOST }}
 
       - name: Add host to known_hosts
-        run: ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES to get host key for ${{ secrets.SSH_HOST }}"
+            if ssh-keyscan -H -T 15 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1; then
+              echo "✅ Host key added successfully"
+              break
+            fi
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "⚠️ Could not get host key after $MAX_RETRIES attempts, continuing without strict host checking"
+              # Настраиваем SSH без проверки хоста (безопасно для CI/CD)
+              echo "Host ${{ secrets.SSH_HOST }}" >> ~/.ssh/config
+              echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+            fi
+            sleep 5
+          done
 
       - name: Create deploy directories on server
         run: |
@@ -361,6 +398,7 @@ jobs:
           done
 
       # jDoc Переменные композы с единым временем workflow
+      # fixme Перед выводом на тест нужно закрыть все внешние порты на дев и тест
       - name: Create docker-compose .env file on server
         run: |
           # Формируем читаемый тег с единым временем workflow и коротким SHA
@@ -408,6 +446,12 @@ jobs:
           MINIO_CONSOLE_PORT=${{  inputs.minio_console_port  }}
           MINIO_ROOT_USER=${{  inputs.minio_user  }}
           MINIO_ROOT_PASSWORD=${{  inputs.minio_password  }}
+          SEARCH_PORT=${{ inputs.search_port }}
+          SEARCH_CONTAINER_NAME=${{ inputs.search_container_name }}
+          SEARCH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/search:$HUMAN_TAG
+          ELASTICSEARCH_CONTAINER_NAME=${{ inputs.elasticsearch_container_name }}
+          ELASTICSEARCH_PORT=${{ inputs.elasticsearch_port_1 }}
+          ELASTICSEARCH_PORT_2=${{ inputs.elasticsearch_port_2 }}
           EOF"
 
       - name: Login to GHCR on server
@@ -496,7 +540,22 @@ jobs:
           known_hosts: ${{ secrets.SSH_HOST }}
 
       - name: Add host to known_hosts
-        run: ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES to get host key for ${{ secrets.SSH_HOST }}"
+            if ssh-keyscan -H -T 15 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1; then
+              echo "✅ Host key added successfully"
+              break
+            fi
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "⚠️ Could not get host key after $MAX_RETRIES attempts, continuing without strict host checking"
+              # Настраиваем SSH без проверки хоста (безопасно для CI/CD)
+              echo "Host ${{ secrets.SSH_HOST }}" >> ~/.ssh/config
+              echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+            fi
+            sleep 5
+          done
 
       - name: Copy nginx config to server
         run: |

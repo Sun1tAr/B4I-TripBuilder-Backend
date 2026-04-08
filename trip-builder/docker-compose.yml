@@ -198,8 +198,8 @@ services:
     build:
       context: services/media/
       dockerfile: Dockerfile
-    image: ${MEDIA_IMAGE:-trip-builder-media:local} # fixme
-    container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media} # fixme
+    image: ${MEDIA_IMAGE:-trip-builder-media:local}
+    container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media}
     env_file:
       - services/media/.env
     ports:
