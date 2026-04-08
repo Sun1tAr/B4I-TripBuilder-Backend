@@ -26,13 +26,17 @@ func NewUserCreatedConsumer(brokers []string, topic string, groupID string, prof
 	)
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  brokers,
-		Topic:    topic,
-		GroupID:  groupID,
-		MinBytes: 10e3,
-		MaxBytes: 10e6,
-		MaxWait:  1 * time.Second,
+		Brokers:           brokers,
+		Topic:             topic,
+		GroupID:           groupID,
+		MinBytes:          1, // НЕ ждём накопления
+		MaxBytes:          10e6,
+		MaxWait:           500 * time.Millisecond, // Чаще отправляем heartbeat
+		CommitInterval:    5 * time.Second,        // Асинхронный коммит (не блокирует)
+		SessionTimeout:    30 * time.Second,       // Время жизни сессии
+		HeartbeatInterval: 3 * time.Second,        // Частота heartbeat
 	})
+
 	return &UserCreatedConsumer{
 		reader:         reader,
 		profileService: profileService,
