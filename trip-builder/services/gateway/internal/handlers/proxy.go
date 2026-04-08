@@ -9,6 +9,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
@@ -94,11 +95,24 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 			return
 		}
 
-		// Получаем user_id из контекста (установлен в middleware)
-		userID := r.Header.Get("X-User-Id")
-		if userID == "" {
-			log.Warn("WebSocketProxy: user_id не найден в контексте")
-			WriteError(w, http.StatusUnauthorized, "unauthorized", "")
+		// Извлекаем токен из query-параметра
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			// Fallback: пробуем из заголовка (для совместимости)
+			token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		}
+
+		if token == "" {
+			log.Warn("WebSocketProxy: token not found in query or header")
+			WriteError(w, http.StatusUnauthorized, "unauthorized", "missing token")
+			return
+		}
+
+		// Валидируем токен через Auth Service
+		userID, err := validateToken(token, cfg.JWTSecret)
+		if err != nil {
+			log.Warn("WebSocketProxy: invalid token", "error", err)
+			WriteError(w, http.StatusUnauthorized, "invalid token", "")
 			return
 		}
 
@@ -106,44 +120,40 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 		target := strings.Replace(targetURL, "http://", "ws://", 1)
 		target = strings.Replace(target, "https://", "wss://", 1)
 
-		// Сохраняем оригинальный путь
 		path := r.URL.Path
-
 		wsURL := target + path
 		if r.URL.RawQuery != "" {
 			wsURL += "?" + r.URL.RawQuery
 		}
+		// Убираем token из query, чтобы не светился в логах
+		wsURL = strings.Replace(wsURL, "token="+token, "", -1)
+		wsURL = strings.TrimSuffix(wsURL, "?&")
+		wsURL = strings.TrimSuffix(wsURL, "&?")
 
 		log.Info("WebSocketProxy: проксирование", "from", r.URL.Path, "to", wsURL, "user_id", userID)
 
-		// Создаем dialer
 		dialer := websocket.Dialer{}
-
-		// Устанавливаем заголовки
 		headers := http.Header{}
 		headers.Set("X-User-ID", userID)
 
-		// Подключаемся к целевому WebSocket
 		targetConn, _, err := dialer.Dial(wsURL, headers)
 		if err != nil {
-			log.Error("WebSocketProxy: ошибка подключения к целевому сервису", "error", err, "url", wsURL)
+			log.Error("WebSocketProxy: ошибка подключения", "error", err, "url", wsURL)
 			WriteError(w, http.StatusBadGateway, "failed to connect to upstream", err.Error())
 			return
 		}
 		defer targetConn.Close()
 
-		// Апгрейдим клиентское соединение
 		clientConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Error("WebSocketProxy: ошибка апгрейда клиента", "error", err)
+			log.Error("WebSocketProxy: ошибка апгрейда", "error", err)
 			return
 		}
 		defer clientConn.Close()
 
-		// Проксируем сообщения в обе стороны
+		// Проксируем сообщения
 		errChan := make(chan error, 2)
 
-		// Клиент -> Целевой сервис
 		go func() {
 			for {
 				msgType, msg, err := clientConn.ReadMessage()
@@ -158,7 +168,6 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 			}
 		}()
 
-		// Целевой сервис -> Клиент
 		go func() {
 			for {
 				msgType, msg, err := targetConn.ReadMessage()
@@ -175,6 +184,32 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 
 		<-errChan
 	}
+}
+
+// validateToken проверяет JWT и возвращает user_id
+func validateToken(tokenString, jwtSecret string) (string, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(jwtSecret), nil
+	})
+
+	if err != nil || !token.Valid {
+		return "", err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", jwt.ErrInvalidKey
+	}
+
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		return "", jwt.ErrInvalidKey
+	}
+
+	return userID, nil
 }
 
 func Health(w http.ResponseWriter, r *http.Request) {

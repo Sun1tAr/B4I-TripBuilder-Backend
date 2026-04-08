@@ -50,16 +50,24 @@ func NewWSHandler(hub *Hub, chatService *service.ChatService, log *logger.Logger
 
 // ServeWS обрабатывает WebSocket подключение
 func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	// Получаем user_id из контекста (устанавливается middleware)
-	userIDStr, ok := r.Context().Value("user_id").(string)
-	if !ok || userIDStr == "" {
-		h.log.Error("WebSocket: user_id не найден в контексте")
+	// Сначала пробуем из заголовка (от gateway)
+	userIDStr := r.Header.Get("X-User-ID")
+
+	// Если нет, пробуем из query-параметра (от браузера)
+	if userIDStr == "" {
+		userIDStr = r.URL.Query().Get("user_id")
+	}
+
+	if userIDStr == "" {
+		h.log.Error("WebSocket: user_id не найден ни в заголовке, ни в query")
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		h.log.Error("WebSocket: неверный user_id", "error", err)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
@@ -68,12 +76,14 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	eventIDStr := vars["event_id"]
 	if eventIDStr == "" {
 		h.log.Error("WebSocket: event_id не указан")
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
 		h.log.Error("WebSocket: неверный event_id", "error", err)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 

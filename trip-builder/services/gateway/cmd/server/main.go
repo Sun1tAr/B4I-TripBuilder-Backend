@@ -125,7 +125,7 @@ func main() {
 	protected.HandleFunc("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat")).Methods("POST")
 	protected.HandleFunc("/chat/events/{id}/unread", handlers.Proxy(cfg, "chat")).Methods("GET")
 	protected.HandleFunc("/chat/messages/{id}", handlers.Proxy(cfg, "chat")).Methods("PUT")
-	protected.HandleFunc("/chat/ws/events/{event_id}", handlers.WebSocketProxy(cfg, "chat")).Methods("GET")
+	conditional.HandleFunc("/chat/ws/events/{event_id}", handlers.WebSocketProxy(cfg, "chat")).Methods("GET")
 
 	// Media
 	protected.HandleFunc("/media/upload", handlers.Proxy(cfg, "media")).Methods("POST")
