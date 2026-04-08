@@ -43,18 +43,11 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_PORT:-2181}
       ZOOKEEPER_TICK_TIME: 2000
-      KAFKA_HEAP_OPTS: "-Xmx128m -Xms128m"
     ports:
       - "${ZOOKEEPER_PORT:-2181}:2181"
     networks:
       - trip-builder-network
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 128M
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -70,7 +63,6 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
     networks:
       - trip-builder-network
     healthcheck:
@@ -80,14 +72,6 @@ services:
       retries: 5
       start_period: 120s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
 
   auth:
     build:
@@ -141,7 +125,7 @@ services:
     depends_on:
       - auth
       - user
-  
+
   route:
     build:
       context: services/route/
@@ -248,54 +232,6 @@ services:
       retries: 3
     restart: unless-stopped
 
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
-    container_name: ${ELASTICSEARCH_CONTAINER_NAME:-trip-builder-backend-elasticsearch}
-    environment:
-      - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms256m -Xmx256m
-      - xpack.security.enabled=false
-      - xpack.security.enrollment.enabled=false
-    ports:
-      - "${ELASTICSEARCH_PORT:-9200}:9200"
-      - "${ELASTICSEARCH_PORT_2:-9300}:9300"
-    volumes:
-      - elasticsearch_data_${CONTOUR:-local}:/usr/share/elasticsearch/data
-    networks:
-      - trip-builder-network
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9200/_cluster/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-
-  search:
-    build:
-      context: services/search/
-      dockerfile: Dockerfile
-    image: ${SEARCH_IMAGE:-trip-builder-search:local}
-    container_name: ${SEARCH_CONTAINER_NAME:-trip-builder-backend-search}
-    env_file:
-      - services/search/.env
-    ports:
-      - "${SEARCH_PORT:-8088}:8088"
-    networks:
-      - trip-builder-network
-    depends_on:
-      - elasticsearch
-    restart: unless-stopped
-
 networks:
   trip-builder-network:
     driver: bridge
@@ -312,10 +248,4 @@ volumes:
   minio_data_development:
     driver: local
   minio_data_production:
-    driver: local
-  elasticsearch_data_local:
-    driver: local
-  elasticsearch_data_development:
-    driver: local
-  elasticsearch_data_production:
     driver: local
