@@ -93,7 +93,7 @@ func main() {
 	go hub.Run()
 
 	// Инициализация WebSocket handler
-	wsHandler := websocket.NewWSHandler(hub, chatService, log, cfg.AllowedOrigins)
+	wsHandler := websocket.NewWSHandler(hub, chatService, redisPubSub, log, cfg.AllowedOrigins)
 
 	// Запуск Kafka consumer для системных сообщений
 	if len(cfg.Kafka.Brokers) > 0 && cfg.Kafka.Brokers[0] != "" {

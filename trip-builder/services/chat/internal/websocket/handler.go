@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/redis"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
@@ -17,16 +18,18 @@ import (
 type WSHandler struct {
 	hub         *Hub
 	chatService *service.ChatService
+	redisPubSub *redis.PubSub
 	log         *logger.Logger
 	clientsMu   sync.RWMutex
 	clientRoom  map[string]uuid.UUID
 	upgrader    websocket.Upgrader
 }
 
-func NewWSHandler(hub *Hub, chatService *service.ChatService, log *logger.Logger, allowedOrigins []string) *WSHandler {
+func NewWSHandler(hub *Hub, chatService *service.ChatService, redisPubSub *redis.PubSub, log *logger.Logger, allowedOrigins []string) *WSHandler {
 	return &WSHandler{
 		hub:         hub,
 		chatService: chatService,
+		redisPubSub: redisPubSub,
 		log:         log,
 		clientRoom:  make(map[string]uuid.UUID),
 		upgrader: websocket.Upgrader{
@@ -129,10 +132,34 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// Отправляем последние 50 сообщений
 	go h.sendRecentMessages(conn, eventID)
 
-	// Запускаем чтение сообщений
+	// Подписываемся на Redis канал комнаты для получения новых сообщений
+	ctx := context.Background()
+	pubsub, err := h.redisPubSub.Subscribe(ctx, eventID)
+	if err != nil {
+		h.log.Error("WebSocket: ошибка подписки на Redis", "error", err)
+		return
+	}
+	defer pubsub.Close()
+
+	// Канал для получения сообщений из Redis
+	redisCh := pubsub.Channel()
+
+	// Горoutine для отправки сообщений из Redis клиенту
+	go func() {
+		for msg := range redisCh {
+			select {
+			case client.Send <- []byte(msg.Payload):
+			default:
+				h.log.Warn("WebSocket: канал клиента переполнен", "client_id", clientID)
+				return
+			}
+		}
+	}()
+
+	// Запускаем чтение сообщений (от клиента)
 	go h.readPump(conn, client, eventID, userID)
 
-	// Запускаем запись сообщений
+	// Запускаем запись сообщений (клиенту) – этот метод читает из client.Send
 	h.writePump(conn, client)
 }
 
@@ -159,13 +186,6 @@ func (h *WSHandler) readPump(conn *websocket.Conn, client *Client, eventID, user
 		conn.Close()
 	}()
 
-	conn.SetReadLimit(512 * 1024)
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		return nil
-	})
-
 	for {
 		var msg map[string]interface{}
 		err := conn.ReadJSON(&msg)
@@ -185,12 +205,14 @@ func (h *WSHandler) readPump(conn *websocket.Conn, client *Client, eventID, user
 				continue
 			}
 
+			// Сохраняем сообщение в БД
 			savedMsg, err := h.chatService.SaveMessage(context.Background(), eventID, userID, text)
 			if err != nil {
 				h.log.Error("WebSocket: ошибка сохранения сообщения", "error", err)
 				continue
 			}
 
+			// Публикуем в Redis для рассылки всем клиентам в комнате
 			h.chatService.PublishMessage(context.Background(), eventID, savedMsg)
 
 		case "ping":
