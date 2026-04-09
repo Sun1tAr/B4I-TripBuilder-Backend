@@ -1152,22 +1152,24 @@ func (s *EventService) GetEventByInviteLink(ctx context.Context, linkID string) 
 		participantsCount = 0
 	}
 
-	// Получаем точки маршрута
+	// Получаем точки маршрута (полностью)
 	waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
 	if err != nil {
 		s.log.Error("GetEventByInviteLink: ошибка получения точек", "error", err)
 		return nil, err
 	}
 
-	// Формируем DTO для точек
+	// Формируем DTO для точек (полные данные)
 	waypointDTOs := make([]eventdto.WaypointPreviewResponse, 0, len(waypoints))
 	for _, wp := range waypoints {
 		waypointDTOs = append(waypointDTOs, eventdto.WaypointPreviewResponse{
 			ID:           wp.ID,
 			City:         wp.City,
 			Description:  wp.Description,
-			PlannedStart: *wp.PlannedStart,
-			PlannedEnd:   *wp.PlannedEnd,
+			Latitude:     wp.Latitude,
+			Longitude:    wp.Longitude,
+			PlannedStart: wp.PlannedStart,
+			PlannedEnd:   wp.PlannedEnd,
 			OrderIndex:   wp.OrderIndex,
 		})
 	}

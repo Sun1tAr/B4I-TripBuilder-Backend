@@ -126,14 +126,16 @@ type InviteLinkResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// WaypointPreviewResponse ДТО для точки в предпросмотре поездки
+// WaypointPreviewResponse ДТО для точки в предпросмотре поездки (полная версия)
 type WaypointPreviewResponse struct {
-	ID           uuid.UUID `json:"id"`
-	City         string    `json:"city"`
-	Description  string    `json:"description,omitempty"`
-	PlannedStart time.Time `json:"planned_start"`
-	PlannedEnd   time.Time `json:"planned_end"`
-	OrderIndex   int       `json:"order_index"`
+	ID           uuid.UUID  `json:"id"`
+	City         string     `json:"city"`
+	Description  string     `json:"description,omitempty"`
+	Latitude     float64    `json:"latitude"`
+	Longitude    float64    `json:"longitude"`
+	PlannedStart *time.Time `json:"planned_start,omitempty"`
+	PlannedEnd   *time.Time `json:"planned_end,omitempty"`
+	OrderIndex   int        `json:"order_index"`
 }
 
 // EventPreviewResponse ДТО для предпросмотра поездки по ссылке-приглашению
