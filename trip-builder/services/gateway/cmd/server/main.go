@@ -82,12 +82,13 @@ func main() {
 	protected.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
 
 	// Routes
+	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/my", handlers.Proxy(cfg, "route")).Methods("GET")
 	protected.HandleFunc("/routes/{id}/like", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/{id}/likes", handlers.Proxy(cfg, "route")).Methods("GET")
-	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("PUT")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("DELETE")
+	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
 
 	// Events
 	protected.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
