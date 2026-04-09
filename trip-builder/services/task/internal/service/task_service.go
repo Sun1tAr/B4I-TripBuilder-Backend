@@ -60,13 +60,11 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 
 	// Валидация приоритета
 	if req.Priority != "" && req.Priority != "high" && req.Priority != "medium" && req.Priority != "low" {
-		s.log.Debug("CreateTask: неверный приоритет", "priority", req.Priority)
 		return nil, ErrInvalidPriority
 	}
 
 	// Валидация даты
 	if req.DueDate != nil && req.DueDate.Before(time.Now()) {
-		s.log.Debug("CreateTask: дедлайн в прошлом", "due_date", req.DueDate)
 		return nil, ErrInvalidDueDate
 	}
 
@@ -75,16 +73,14 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 		priority = "medium"
 	}
 
-	// Проверяем права: кто создает задачу
+	// Проверяем права: владелец или участник
 	isOwner, err := s.eventClient.IsEventOwner(ctx, req.EventID, userID)
 	if err != nil {
-		s.log.Error("CreateTask: ошибка проверки владельца", "error", err)
 		return nil, err
 	}
 
 	isParticipant, err := s.eventClient.IsEventParticipant(ctx, req.EventID, userID)
 	if err != nil {
-		s.log.Error("CreateTask: ошибка проверки участника", "error", err)
 		return nil, err
 	}
 
@@ -93,26 +89,39 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 		return nil, ErrNotAuthorized
 	}
 
-	// Определяем assigned_to
-	assignedTo := req.AssignedTo
+	// Получаем информацию о событии (нужен ownerID)
+	event, err := s.eventClient.GetEvent(ctx, req.EventID)
+	if err != nil {
+		s.log.Error("CreateTask: ошибка получения события", "error", err, "event_id", req.EventID)
+		return nil, err
+	}
+	ownerID := event.OwnerID
+
+	// Определяем, требует ли задача подтверждения администратора
 	approvedByAdmin := false
 
-	if assignedTo == nil {
-		// Если назначенный не указан — назначаем на создателя
-		assignedTo = &userID
-	}
-
 	if isOwner {
-		// Админ: задача сразу подтверждена
+		// Владелец поездки: любые задачи сразу подтверждены
 		approvedByAdmin = true
+		s.log.Debug("CreateTask: владелец создаёт задачу, сразу подтверждена")
 	} else {
-		// Участник: проверяем, на кого создает задачу
-		if assignedTo != nil && *assignedTo == userID {
-			// Создает задачу для себя → сразу подтверждена
-			approvedByAdmin = true
-		} else {
-			// Создает задачу для другого → требует подтверждения админа
+		// Обычный участник
+		if req.AssignedTo == nil {
+			// Общая задача (назначена на всех) – требует подтверждения владельца
 			approvedByAdmin = false
+			s.log.Debug("CreateTask: общая задача, требует подтверждения владельца")
+		} else if *req.AssignedTo == userID {
+			// Задача на себя – сразу подтверждена
+			approvedByAdmin = true
+			s.log.Debug("CreateTask: задача на себя, сразу подтверждена")
+		} else if *req.AssignedTo == ownerID {
+			// Задача на владельца – требует подтверждения
+			approvedByAdmin = false
+			s.log.Debug("CreateTask: задача на владельца, требует подтверждения")
+		} else {
+			// Задача на другого участника – требует подтверждения владельца
+			approvedByAdmin = false
+			s.log.Debug("CreateTask: задача на другого участника, требует подтверждения")
 		}
 	}
 
@@ -122,7 +131,7 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 		EventID:         req.EventID,
 		Title:           req.Title,
 		Description:     req.Description,
-		AssignedTo:      assignedTo,
+		AssignedTo:      req.AssignedTo,
 		CreatedBy:       userID,
 		Priority:        priority,
 		Status:          "pending",
@@ -131,14 +140,12 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 		CreatedAt:       now,
 	}
 
-	s.log.Trace("CreateTask: сохранение в БД", "task_id", task.ID, "approved_by_admin", approvedByAdmin)
-
 	if err := s.taskRepo.Create(ctx, task); err != nil {
-		s.log.Error("CreateTask: ошибка сохранения", "error", err, "task_id", task.ID)
+		s.log.Error("CreateTask: ошибка сохранения", "error", err)
 		return nil, err
 	}
 
-	s.log.Info("CreateTask: задача создана", "task_id", task.ID, "event_id", task.EventID, "created_by", userID, "approved_by_admin", approvedByAdmin)
+	s.log.Info("CreateTask: задача создана", "task_id", task.ID, "approved_by_admin", approvedByAdmin)
 	return task, nil
 }
 
@@ -160,18 +167,30 @@ func (s *TaskService) GetTaskByID(ctx context.Context, taskID uuid.UUID, userID 
 	return task, nil
 }
 
-// GetTasks возвращает список задач с фильтрацией
-func (s *TaskService) GetTasks(ctx context.Context, eventID *uuid.UUID, assignedTo *uuid.UUID, status string, page, size int, userID *uuid.UUID) ([]models.Task, int64, error) {
-	s.log.Debug("GetTasks: начало", "user_id", userID, "event_id", eventID, "assigned_to", assignedTo, "status", status, "page", page, "size", size)
+// GetTasks возвращает список задач с учётом прав пользователя
+func (s *TaskService) GetTasks(ctx context.Context, eventID *uuid.UUID, userID uuid.UUID, page, size int) ([]models.Task, int64, error) {
+	s.log.Debug("GetTasks: начало", "user_id", userID, "event_id", eventID, "page", page, "size", size)
+
+	// Проверяем, является ли пользователь владельцем события
+	isOwner := false
+	if eventID != nil {
+		owner, err := s.eventClient.IsEventOwner(ctx, *eventID, userID)
+		if err != nil {
+			s.log.Error("GetTasks: ошибка проверки владельца", "error", err)
+			// не фатально, считаем что не владелец
+		} else {
+			isOwner = owner
+		}
+	}
 
 	offset := (page - 1) * size
-	tasks, total, err := s.taskRepo.List(ctx, eventID, assignedTo, status, size, offset)
+	tasks, total, err := s.taskRepo.List(ctx, eventID, userID, isOwner, size, offset)
 	if err != nil {
 		s.log.Error("GetTasks: ошибка получения списка", "error", err)
 		return nil, 0, err
 	}
 
-	s.log.Info("GetTasks: список получен", "count", len(tasks), "total", total)
+	s.log.Info("GetTasks: список получен", "count", len(tasks), "total", total, "is_owner", isOwner)
 	return tasks, total, nil
 }
 
@@ -238,42 +257,33 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 	isCreator := task.CreatedBy == userID
 	isAssigned := task.AssignedTo != nil && *task.AssignedTo == userID
 
-	// Базовые права: админ или создатель могут редактировать любые поля
-	canEdit := isOwner || isCreator
-
-	// Для изменения статуса достаточно быть назначенным
-	canChangeStatus := isOwner || isCreator || isAssigned
-
-	// Для переназначения — только админ
-	canReassign := isOwner
-
-	if !canEdit && !canChangeStatus {
-		s.log.Warn("UpdateTask: попытка редактирования без прав", "task_id", taskID, "user_id", userID)
-		return nil, ErrNotAuthorized
-	}
-
 	// Если задача не подтверждена, менять может только создатель или админ
 	if !task.ApprovedByAdmin && !isCreator && !isOwner {
 		s.log.Warn("UpdateTask: попытка редактирования неподтвержденной задачи", "task_id", taskID, "user_id", userID)
 		return nil, ErrNotAuthorized
 	}
 
-	s.log.Trace("UpdateTask: обновление полей", "task_id", taskID)
+	s.log.Trace("UpdateTask: обновление полей", "task_id", taskID, "is_owner", isOwner, "is_creator", isCreator, "is_assigned", isAssigned)
 
+	// Обновляем Title (могут все, у кого есть canEdit)
 	if req.Title != nil {
-		if !canEdit {
+		if !isOwner && !isCreator {
 			return nil, ErrNotAuthorized
 		}
 		task.Title = *req.Title
 	}
+
+	// Обновляем Description (могут все, у кого есть canEdit)
 	if req.Description != nil {
-		if !canEdit {
+		if !isOwner && !isCreator {
 			return nil, ErrNotAuthorized
 		}
 		task.Description = *req.Description
 	}
+
+	// Обновляем Priority (могут все, у кого есть canEdit)
 	if req.Priority != nil {
-		if !canEdit {
+		if !isOwner && !isCreator {
 			return nil, ErrNotAuthorized
 		}
 		if *req.Priority != "high" && *req.Priority != "medium" && *req.Priority != "low" {
@@ -281,8 +291,10 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 		}
 		task.Priority = *req.Priority
 	}
+
+	// Обновляем DueDate (могут все, у кого есть canEdit)
 	if req.DueDate != nil {
-		if !canEdit {
+		if !isOwner && !isCreator {
 			return nil, ErrNotAuthorized
 		}
 		if req.DueDate.Before(time.Now()) {
@@ -291,18 +303,18 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 		task.DueDate = req.DueDate
 	}
 
-	// Переназначить может только админ
+	// Обновляем AssignedTo (только владелец поездки)
 	if req.AssignedTo != nil {
-		if !canReassign {
+		if !isOwner && !isCreator {
 			s.log.Warn("UpdateTask: попытка переназначения без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
 		task.AssignedTo = req.AssignedTo
 	}
 
-	// Изменить статус может админ, создатель или назначенный
+	// Обновляем Status (могут владелец, создатель, исполнитель)
 	if req.Status != nil {
-		if !canChangeStatus {
+		if !isOwner && !isCreator && !isAssigned {
 			s.log.Warn("UpdateTask: попытка изменения статуса без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
