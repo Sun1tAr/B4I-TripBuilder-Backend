@@ -60,3 +60,9 @@ type ListEventsRequest struct {
 	Size   int    `json:"size" default:"10"`
 	Status string `json:"status,omitempty"` // planned, active, completed
 }
+
+// CreateInviteLinkRequest запрос на создание ссылки-приглашения
+type CreateInviteLinkRequest struct {
+	EventID    uuid.UUID `json:"event_id" validate:"required"`
+	TTLSeconds int       `json:"ttl_seconds,omitempty"` // опционально, если нужен свой TTL
+}

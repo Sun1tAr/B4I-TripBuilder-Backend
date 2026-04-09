@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/service"
@@ -1331,4 +1332,81 @@ func (h *EventHandler) CheckParticipant(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.writeJSON(w, http.StatusOK, map[string]bool{"is_participant": isParticipant})
+}
+
+// CreateInviteLink создаёт ссылку-приглашение
+func (h *EventHandler) CreateInviteLink(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	var req eventdto.CreateInviteLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debug("CreateInviteLink: ошибка декодирования", "error", err)
+		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+
+	if req.EventID == uuid.Nil {
+		h.writeError(w, http.StatusBadRequest, "event_id is required", "")
+		return
+	}
+
+	// TTL из конфига или из запроса
+	ttl := h.eventService.GetInviteLinkTTL()
+	if req.TTLSeconds > 0 {
+		ttl = time.Duration(req.TTLSeconds) * time.Second
+	}
+
+	resp, err := h.eventService.CreateInviteLink(r.Context(), req.EventID, *userID, ttl)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrEventNotFound):
+			h.writeError(w, http.StatusNotFound, "event not found", "")
+		case errors.Is(err, service.ErrNotOwner):
+			h.writeError(w, http.StatusForbidden, "only owner can create invite links", "")
+		default:
+			log.Error("Ошибка создания ссылки-приглашения", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	log.Info("CreateInviteLink: ссылка-приглашение создана", "event_id", req.EventID, "link_id", resp.LinkID)
+	h.writeJSON(w, http.StatusCreated, resp)
+}
+
+// GetEventByInviteLink получает информацию о поездке по ссылке-приглашению
+func (h *EventHandler) GetEventByInviteLink(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	linkID := vars["link_id"]
+
+	if linkID == "" {
+		h.writeError(w, http.StatusBadRequest, "link_id is required", "")
+		return
+	}
+
+	log.Debug("GetEventByInviteLink: запрос", "link_id", linkID)
+
+	resp, err := h.eventService.GetEventByInviteLink(r.Context(), linkID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInviteLinkNotFound):
+			log.Debug("GetEventByInviteLink: ссылка не найдена или истекла", "link_id", linkID)
+			h.writeError(w, http.StatusNotFound, "invite link not found or expired", "")
+		case errors.Is(err, service.ErrEventNotFound):
+			h.writeError(w, http.StatusNotFound, "event not found", "")
+		default:
+			log.Error("Ошибка получения поездки по ссылке-приглашению", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
 }

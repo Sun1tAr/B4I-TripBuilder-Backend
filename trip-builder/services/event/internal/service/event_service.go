@@ -8,12 +8,14 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/auth"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/route"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/kafka"
 	eventdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -27,6 +29,7 @@ var (
 	ErrInvalidWaypoint        = errors.New("invalid waypoint")
 	ErrInviteNotFound         = errors.New("invitation not found")
 	ErrInviteAlreadyProcessed = errors.New("invitation already processed")
+	ErrInviteLinkNotFound     = errors.New("invite link not found or expired") // NEW
 )
 
 type EventService struct {
@@ -39,6 +42,8 @@ type EventService struct {
 	authClient      *auth.Client
 	producer        *kafka.EventProducer
 	log             *logger.Logger
+	redisClient     *redis.Client
+	cfg             *config.Config
 }
 
 func NewEventService(
@@ -50,7 +55,9 @@ func NewEventService(
 	routeClient *route.Client,
 	authClient *auth.Client,
 	producer *kafka.EventProducer,
+	redisClient *redis.Client,
 	log *logger.Logger,
+	cfg *config.Config,
 ) *EventService {
 	return &EventService{
 		eventRepo:       eventRepo,
@@ -61,7 +68,9 @@ func NewEventService(
 		routeClient:     routeClient,
 		authClient:      authClient,
 		producer:        producer,
+		redisClient:     redisClient,
 		log:             log,
+		cfg:             cfg,
 	}
 }
 
@@ -1061,4 +1070,124 @@ func (s *EventService) IsEventOwner(ctx context.Context, eventID, userID uuid.UU
 // IsEventParticipant проверяет, является ли пользователь активным участником события
 func (s *EventService) IsEventParticipant(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
 	return s.participantRepo.IsParticipant(ctx, eventID, userID)
+}
+
+// CreateInviteLink создаёт временную ссылку-приглашение
+func (s *EventService) CreateInviteLink(ctx context.Context, eventID, userID uuid.UUID, ttl time.Duration) (*eventdto.InviteLinkResponse, error) {
+	s.log.Debug("CreateInviteLink: начало", "event_id", eventID, "user_id", userID, "ttl", ttl)
+
+	// Проверяем, что пользователь имеет право создавать приглашения (только владелец)
+	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !isOwner {
+		s.log.Warn("CreateInviteLink: попытка создания ссылки не владельцем", "user_id", userID, "event_id", eventID)
+		return nil, ErrNotOwner
+	}
+
+	// Проверяем, что поездка существует
+	event, err := s.eventRepo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, ErrEventNotFound
+	}
+
+	// Генерируем уникальный link_id
+	linkID := uuid.New().String()
+
+	// Сохраняем в Redis
+	expiresAt := time.Now().Add(ttl)
+	redisKey := fmt.Sprintf("invite_link:%s", linkID)
+	err = s.redisClient.Set(ctx, redisKey, eventID.String(), ttl).Err()
+	if err != nil {
+		s.log.Error("CreateInviteLink: ошибка сохранения в Redis", "error", err, "key", redisKey)
+		return nil, err
+	}
+
+	s.log.Info("CreateInviteLink: ссылка-приглашение создана", "event_id", eventID, "link_id", linkID, "expires_at", expiresAt)
+
+	return &eventdto.InviteLinkResponse{
+		LinkID:    linkID,
+		ExpiresAt: expiresAt,
+	}, nil
+}
+
+// GetEventByInviteLink получает информацию о поездке по ссылке-приглашению
+func (s *EventService) GetEventByInviteLink(ctx context.Context, linkID string) (*eventdto.EventPreviewResponse, error) {
+	s.log.Debug("GetEventByInviteLink: начало", "link_id", linkID)
+
+	// Получаем event_id из Redis
+	redisKey := fmt.Sprintf("invite_link:%s", linkID)
+	eventIDStr, err := s.redisClient.Get(ctx, redisKey).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			s.log.Debug("GetEventByInviteLink: ссылка не найдена или истекла", "link_id", linkID)
+			return nil, ErrInviteLinkNotFound
+		}
+		s.log.Error("GetEventByInviteLink: ошибка получения из Redis", "error", err, "key", redisKey)
+		return nil, err
+	}
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		return nil, ErrInviteLinkNotFound
+	}
+
+	// Получаем информацию о поездке
+	event, err := s.eventRepo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, ErrEventNotFound
+	}
+
+	// Получаем количество участников
+	participantsCount, err := s.participantRepo.CountByEventID(ctx, eventID)
+	if err != nil {
+		s.log.Error("GetEventByInviteLink: ошибка получения количества участников", "error", err)
+		participantsCount = 0
+	}
+
+	// Получаем точки маршрута
+	waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
+	if err != nil {
+		s.log.Error("GetEventByInviteLink: ошибка получения точек", "error", err)
+		return nil, err
+	}
+
+	// Формируем DTO для точек
+	waypointDTOs := make([]eventdto.WaypointPreviewResponse, 0, len(waypoints))
+	for _, wp := range waypoints {
+		waypointDTOs = append(waypointDTOs, eventdto.WaypointPreviewResponse{
+			ID:           wp.ID,
+			City:         wp.City,
+			Description:  wp.Description,
+			PlannedStart: *wp.PlannedStart,
+			PlannedEnd:   *wp.PlannedEnd,
+			OrderIndex:   wp.OrderIndex,
+		})
+	}
+
+	s.log.Debug("GetEventByInviteLink: поездка получена", "event_id", eventID, "link_id", linkID, "waypoints_count", len(waypointDTOs))
+
+	return &eventdto.EventPreviewResponse{
+		ID:                event.ID,
+		Title:             event.Title,
+		Description:       event.Description,
+		StartDate:         event.StartDate,
+		EndDate:           event.EndDate,
+		IsGroup:           event.IsGroup,
+		OwnerID:           event.OwnerID,
+		ParticipantsCount: participantsCount,
+		Waypoints:         waypointDTOs,
+	}, nil
+}
+
+// GetInviteLinkTTL возвращает TTL для ссылок-приглашений
+func (s *EventService) GetInviteLinkTTL() time.Duration {
+	return s.cfg.InviteLinkTTL
 }

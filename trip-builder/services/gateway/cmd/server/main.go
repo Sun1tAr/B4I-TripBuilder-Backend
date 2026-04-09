@@ -95,6 +95,8 @@ func main() {
 	protected.HandleFunc("/events/invites", handlers.Proxy(cfg, "event")).Methods("GET")
 	protected.HandleFunc("/events/invites/{invite_id}/accept", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/invites/{invite_id}/decline", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/invites/new", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event")).Methods("GET")
 	protected.HandleFunc("/events/{id}/invite", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
