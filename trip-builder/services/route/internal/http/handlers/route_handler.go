@@ -163,8 +163,16 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// В GetPublicRoutes, при заполнении items
 	items := make([]routedto.RouteResponse, len(routes))
 	for i, route := range routes {
+		// Получаем теги для маршрута (нужен отдельный запрос или JOIN)
+		tags, err := h.routeService.GetTagsForRoute(r.Context(), route.ID)
+		if err != nil {
+			log.Warn("Ошибка получения тегов", "error", err, "route_id", route.ID)
+			tags = []string{}
+		}
+
 		items[i] = routedto.RouteResponse{
 			ID:          route.ID,
 			Title:       route.Title,
@@ -178,12 +186,16 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 			LikesCount:  route.LikesCount,
 			EventsCount: route.EventsCount,
 			IsLiked:     route.IsLiked,
+			Tags:        tags,
 			CreatedAt:   route.CreatedAt,
 			UpdatedAt:   route.UpdatedAt,
 		}
 	}
 
 	totalPages := (int(total) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
 
 	response := routedto.ListRoutesResponse{
 		Items:      items,
@@ -225,6 +237,12 @@ func (h *RouteHandler) GetMyRoutes(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]routedto.RouteResponse, len(routes))
 	for i, route := range routes {
+		// Преобразуем теги в slice строк
+		tagNames := make([]string, len(route.Tags))
+		for j, tag := range route.Tags {
+			tagNames[j] = tag.Name
+		}
+
 		items[i] = routedto.RouteResponse{
 			ID:          route.ID,
 			Title:       route.Title,
@@ -237,12 +255,17 @@ func (h *RouteHandler) GetMyRoutes(w http.ResponseWriter, r *http.Request) {
 			TotalHours:  route.TotalHours,
 			LikesCount:  route.LikesCount,
 			EventsCount: route.EventsCount,
-			CreatedAt:   route.CreatedAt,
-			UpdatedAt:   route.UpdatedAt,
+			// IsLiked:     route.IsLiked, // ← УБРАТЬ (нет такого поля)
+			Tags:      tagNames,
+			CreatedAt: route.CreatedAt,
+			UpdatedAt: route.UpdatedAt,
 		}
 	}
 
 	totalPages := (int(total) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
 
 	response := routedto.ListRoutesResponse{
 		Items:      items,
@@ -282,7 +305,7 @@ func (h *RouteHandler) GetRouteByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := routeToResponse(route)
+	response := routeToResponse(route) // здесь уже есть теги
 	h.writeJSON(w, http.StatusOK, response)
 }
 
