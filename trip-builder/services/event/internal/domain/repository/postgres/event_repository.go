@@ -170,13 +170,13 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 
 func (r *EventRepository) ListPublic(ctx context.Context, limit, offset int) ([]models.Event, int64, error) {
 	query := fmt.Sprintf(`
-		SELECT id, route_id, title, description, owner_id, start_date, end_date,
-		       is_group, status, is_public, created_at, updated_at
-		FROM %s
-		WHERE is_public = true AND status = 'completed'
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`, r.table())
+        SELECT id, route_id, title, description, owner_id, start_date, end_date,
+               is_group, status, is_public, created_at, updated_at
+        FROM %s
+        WHERE is_public = true AND status != 'cancelled'
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+    `, r.table())
 
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
@@ -206,7 +206,8 @@ func (r *EventRepository) ListPublic(ctx context.Context, limit, offset int) ([]
 		events = append(events, event)
 	}
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE is_public = true AND status = 'completed'", r.table())
+	// Считаем общее количество (тоже без cancelled)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE is_public = true AND status != 'cancelled'", r.table())
 	var total int64
 	err = r.db.QueryRowContext(ctx, countQuery).Scan(&total)
 	if err != nil {
