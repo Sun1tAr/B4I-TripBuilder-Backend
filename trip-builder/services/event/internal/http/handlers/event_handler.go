@@ -240,11 +240,9 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 		"page", pageStr,
 		"size", sizeStr,
 	)
-
 	var page, size int
 	var err error
 
-	// Если параметры пагинации не указаны — возвращаем все записи
 	if pageStr == "" && sizeStr == "" {
 		page = 1
 		size = 10000
@@ -271,22 +269,36 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Получаем статистику участников для всех событий
+	eventIDs := make([]uuid.UUID, len(events))
+	for i, e := range events {
+		eventIDs[i] = e.ID
+	}
+	statsMap, err := h.eventService.GetParticipantsStats(r.Context(), eventIDs)
+	if err != nil {
+		log.Error("Ошибка получения статистики участников", "error", err)
+		statsMap = make(map[uuid.UUID]eventdto.EventParticipantsStatsDTO)
+	}
+
 	// Преобразуем в DTO
 	items := make([]eventdto.EventResponse, 0, len(events))
 	for _, e := range events {
+		stats := statsMap[e.ID]
 		items = append(items, eventdto.EventResponse{
-			ID:          e.ID,
-			RouteID:     e.RouteID,
-			Title:       e.Title,
-			Description: e.Description,
-			OwnerID:     e.OwnerID,
-			StartDate:   e.StartDate,
-			EndDate:     e.EndDate,
-			IsGroup:     e.IsGroup,
-			Status:      e.Status,
-			IsPublic:    e.IsPublic,
-			CreatedAt:   e.CreatedAt,
-			UpdatedAt:   e.UpdatedAt,
+			ID:                e.ID,
+			RouteID:           e.RouteID,
+			Title:             e.Title,
+			Description:       e.Description,
+			OwnerID:           e.OwnerID,
+			StartDate:         e.StartDate,
+			EndDate:           e.EndDate,
+			IsGroup:           e.IsGroup,
+			Status:            e.Status,
+			IsPublic:          e.IsPublic,
+			CreatedAt:         e.CreatedAt,
+			UpdatedAt:         e.UpdatedAt,
+			TotalInvites:      stats.TotalInvites,
+			TotalParticipants: stats.TotalParticipants,
 		})
 	}
 
