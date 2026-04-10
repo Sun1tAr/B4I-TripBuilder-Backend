@@ -74,12 +74,8 @@ func main() {
 	protected.HandleFunc("/users/me", handlers.Proxy(cfg, "user")).Methods("GET")
 	protected.HandleFunc("/users/me", handlers.Proxy(cfg, "user")).Methods("PUT")
 	protected.HandleFunc("/users/me/avatar", handlers.Proxy(cfg, "user")).Methods("POST")
-	protected.HandleFunc("/users/{id}/stats", handlers.Proxy(cfg, "user")).Methods("GET")
-	protected.HandleFunc("/users/{id}/achievements", handlers.Proxy(cfg, "user")).Methods("GET")
-	protected.HandleFunc("/users/{id}/events", handlers.Proxy(cfg, "user")).Methods("GET")
 	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("POST")
 	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("DELETE")
-	protected.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
 
 	// Routes
 	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
@@ -131,10 +127,6 @@ func main() {
 	// Media
 	protected.HandleFunc("/media/upload", handlers.Proxy(cfg, "media")).Methods("POST")
 	protected.HandleFunc("/media/upload/batch", handlers.Proxy(cfg, "media")).Methods("POST")
-	protected.HandleFunc("/media/event/{eventId}", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/{id}/file", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
 	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("DELETE")
 
 	// вынесли в MVP1
@@ -165,6 +157,16 @@ func main() {
 	public.HandleFunc("/routes/tags", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
+
+	public.HandleFunc("/users/{id}/stats", handlers.Proxy(cfg, "user")).Methods("GET")
+	public.HandleFunc("/users/{id}/achievements", handlers.Proxy(cfg, "user")).Methods("GET")
+	public.HandleFunc("/users/{id}/events", handlers.Proxy(cfg, "user")).Methods("GET")
+	public.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
+
+	public.HandleFunc("/media/event/{eventId}", handlers.Proxy(cfg, "media")).Methods("GET")
+	public.HandleFunc("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media")).Methods("GET")
+	public.HandleFunc("/media/{id}/file", handlers.Proxy(cfg, "media")).Methods("GET")
+	public.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
 
 	// Middleware для HTTP сервера
 	httpHandler := middleware.Recovery(log)(httpRouter)

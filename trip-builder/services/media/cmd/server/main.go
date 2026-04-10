@@ -113,16 +113,17 @@ func main() {
 
 	// API роутер с префиксом /api/v1/media
 	api := r.PathPrefix("/api/v1/media").Subrouter()
-	api.Use(middleware.Auth(log))
+	public := api.PathPrefix("").Subrouter()
+	protected := api.PathPrefix("").Subrouter()
+	protected.Use(middleware.Auth(log))
 
-	// Защищённые маршруты
-	api.HandleFunc("/upload", mediaHandler.Upload).Methods("POST")
-	api.HandleFunc("/upload/batch", mediaHandler.UploadBatch).Methods("POST")
-	api.HandleFunc("/event/{eventId}", mediaHandler.GetByEventID).Methods("GET")
-	api.HandleFunc("/waypoint/{waypointId}", mediaHandler.GetByWaypointID).Methods("GET")
-	api.HandleFunc("/{id}/file", mediaHandler.ServeFile).Methods("GET")
-	api.HandleFunc("/{id}", mediaHandler.GetByID).Methods("GET")
-	api.HandleFunc("/{id}", mediaHandler.Delete).Methods("DELETE")
+	public.HandleFunc("/waypoint/{waypointId}", mediaHandler.GetByWaypointID).Methods("GET")
+	public.HandleFunc("/event/{eventId}", mediaHandler.GetByEventID).Methods("GET")
+	protected.HandleFunc("/upload/batch", mediaHandler.UploadBatch).Methods("POST")
+	protected.HandleFunc("/upload", mediaHandler.Upload).Methods("POST")
+	public.HandleFunc("/{id}/file", mediaHandler.ServeFile).Methods("GET")
+	public.HandleFunc("/{id}", mediaHandler.GetByID).Methods("GET")
+	protected.HandleFunc("/{id}", mediaHandler.Delete).Methods("DELETE")
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)
