@@ -461,7 +461,7 @@ func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sor
 			isLiked, err = s.likeRepo.IsLiked(ctx, *currentUserID, route.ID)
 			if err != nil {
 				s.log.Error("Ошибка проверки лайка", "error", err, "route_id", route.ID)
-				isLiked = false
+				isLiked = false // не фатально
 			}
 		}
 
@@ -474,7 +474,7 @@ func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sor
 	return result, total, nil
 }
 
-// ListUserRoutes возвращает маршруты пользователя (с тегами)
+// ListUserRoutes возвращает маршруты пользователя
 func (s *RouteService) ListUserRoutes(ctx context.Context, userID uuid.UUID, page, size int) ([]models.Route, int64, error) {
 	s.log.Debug("ListUserRoutes", "user_id", userID, "page", page, "size", size)
 
@@ -485,7 +485,6 @@ func (s *RouteService) ListUserRoutes(ctx context.Context, userID uuid.UUID, pag
 		return nil, 0, err
 	}
 
-	s.log.Info("Маршруты пользователя получены", "user_id", userID, "count", len(routes), "total", total)
 	return routes, total, nil
 }
 
@@ -597,18 +596,4 @@ func (s *RouteService) calculateTotalDuration(waypoints []models.CreateWaypoint)
 
 func timePtr(t time.Time) *time.Time {
 	return &t
-}
-
-// GetTagsForRoute возвращает список тегов для маршрута
-func (s *RouteService) GetTagsForRoute(ctx context.Context, routeID uuid.UUID) ([]string, error) {
-	tags, err := s.tagRepo.GetByRouteID(ctx, routeID)
-	if err != nil {
-		return nil, err
-	}
-
-	tagNames := make([]string, len(tags))
-	for i, tag := range tags {
-		tagNames[i] = tag.Name
-	}
-	return tagNames, nil
 }

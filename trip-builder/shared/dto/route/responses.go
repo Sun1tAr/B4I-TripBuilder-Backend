@@ -20,7 +20,6 @@ type RouteResponse struct {
 	LikesCount  int        `json:"likes_count"`
 	EventsCount int        `json:"events_count"`
 	IsLiked     bool       `json:"is_liked,omitempty"`
-	Tags        []string   `json:"tags,omitempty"` // ← ДОБАВИТЬ
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }

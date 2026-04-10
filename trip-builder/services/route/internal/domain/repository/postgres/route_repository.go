@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -163,77 +162,64 @@ func (r *RouteRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) 
 	return route, waypoints, nil
 }
 
+// ListPublic возвращает публичные маршруты с фильтрацией и пагинацией
 func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sort string, filters map[string]interface{}) ([]models.Route, int64, error) {
+	r.log.Debug("RouteRepository.ListPublic",
+		"limit", limit,
+		"offset", offset,
+		"sort", sort,
+		"filters", filters,
+	)
+
 	// Базовый запрос
 	fromClause := fmt.Sprintf("FROM %s r", r.table())
 	whereClause := "WHERE r.is_public = true"
 	args := []interface{}{}
 	argPos := 1
 
-	// Обработка фильтра по тегам (через подзапрос)
+	// Обработка фильтра по тегам (требует JOIN)
 	if tags, ok := filters["tags"]; ok {
 		tagList, ok := tags.([]string)
 		if ok && len(tagList) > 0 {
-			// Подзапрос: получаем route_id, у которых есть все теги
-			routeTagsTable := r.routeTagsTable()
-			tagsTable := r.tagsTable()
+			// Добавляем JOIN с таблицами тегов
+			routeTagsTable := fmt.Sprintf("%s.route_tags", r.schema)
+			tagsTable := fmt.Sprintf("%s.tags", r.schema)
 
+			fromClause = fmt.Sprintf(`
+				FROM %s r
+				JOIN %s rt ON r.id = rt.route_id
+				JOIN %s t ON rt.tag_id = t.id
+			`, r.table(), routeTagsTable, tagsTable)
+
+			// Добавляем условие по тегам
 			placeholders := make([]string, len(tagList))
 			for i, tag := range tagList {
 				placeholders[i] = fmt.Sprintf("$%d", argPos)
 				args = append(args, tag)
 				argPos++
 			}
-
-			fromClause = fmt.Sprintf(`
-                FROM %s r
-                WHERE r.is_public = true 
-                AND r.id IN (
-                    SELECT rt.route_id
-                    FROM %s rt
-                    JOIN %s t ON rt.tag_id = t.id
-                    WHERE t.name IN (%s)
-                    GROUP BY rt.route_id
-                    HAVING COUNT(DISTINCT t.id) = %d
-                )
-            `, r.table(), routeTagsTable, tagsTable, strings.Join(placeholders, ","), len(tagList))
-
-			whereClause = ""
+			whereClause = fmt.Sprintf("WHERE r.is_public = true AND t.name IN (%s)",
+				strings.Join(placeholders, ","))
 		}
 	}
 
-	// Применяем остальные фильтры (страна, длительность)
+	// Применяем остальные фильтры
 	if country, ok := filters["country"]; ok && country != "" {
-		if whereClause != "" {
-			whereClause += " AND "
-		} else {
-			whereClause = "WHERE "
-		}
-		whereClause += fmt.Sprintf("r.country = $%d", argPos)
+		whereClause += fmt.Sprintf(" AND r.country = $%d", argPos)
 		args = append(args, country)
 		argPos++
 	}
 
 	if durationFrom, ok := filters["duration_from"]; ok {
 		totalMinutes := durationFrom.(int) * 24 * 60
-		if whereClause != "" {
-			whereClause += " AND "
-		} else {
-			whereClause = "WHERE "
-		}
-		whereClause += fmt.Sprintf("(r.total_days * 24 * 60 + r.total_hours * 60) >= $%d", argPos)
+		whereClause += fmt.Sprintf(" AND (r.total_days * 24 * 60 + r.total_hours * 60) >= $%d", argPos)
 		args = append(args, totalMinutes)
 		argPos++
 	}
 
 	if durationTo, ok := filters["duration_to"]; ok {
 		totalMinutes := durationTo.(int) * 24 * 60
-		if whereClause != "" {
-			whereClause += " AND "
-		} else {
-			whereClause = "WHERE "
-		}
-		whereClause += fmt.Sprintf("(r.total_days * 24 * 60 + r.total_hours * 60) <= $%d", argPos)
+		whereClause += fmt.Sprintf(" AND (r.total_days * 24 * 60 + r.total_hours * 60) <= $%d", argPos)
 		args = append(args, totalMinutes)
 		argPos++
 	}
@@ -247,7 +233,13 @@ func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sor
 		orderBy = " ORDER BY (r.likes_count + r.events_count) DESC, r.created_at DESC"
 	}
 
-	// Получаем общее количество
+	// Если использовали JOIN, нужно добавить GROUP BY для избежания дубликатов
+	groupBy := ""
+	if _, ok := filters["tags"]; ok {
+		groupBy = " GROUP BY r.id"
+	}
+
+	// Получаем общее количество (с учётом фильтров)
 	countQuery := "SELECT COUNT(DISTINCT r.id) " + fromClause + " " + whereClause
 	var total int64
 	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
@@ -257,18 +249,16 @@ func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sor
 	}
 
 	// Получаем данные
-	query := fmt.Sprintf(`
-        SELECT r.id, r.title, r.description, r.country, r.image_url, r.user_id, r.is_public,
-               r.total_days, r.total_hours, r.likes_count, r.events_count, r.created_at, r.updated_at
-        %s %s %s
-        LIMIT $%d OFFSET $%d
-    `, fromClause, whereClause, orderBy, argPos, argPos+1)
+	query := "SELECT r.id, r.title, r.description, r.country, r.image_url, r.user_id, r.is_public, " +
+		"r.total_days, r.total_hours, r.likes_count, r.events_count, r.created_at, r.updated_at " +
+		fromClause + " " + whereClause + groupBy + orderBy +
+		fmt.Sprintf(" LIMIT $%d OFFSET $%d", argPos, argPos+1)
 
 	args = append(args, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		r.log.Error("RouteRepository.ListPublic: ошибка запроса", "error", err, "query", query)
+		r.log.Error("RouteRepository.ListPublic: ошибка запроса", "error", err)
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -298,37 +288,14 @@ func (r *RouteRepository) ListPublic(ctx context.Context, limit, offset int, sor
 	return routes, total, nil
 }
 
-// ListByUserID возвращает маршруты пользователя с тегами
 func (r *RouteRepository) ListByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]models.Route, int64, error) {
 	query := fmt.Sprintf(`
-        SELECT 
-            r.id, 
-            r.title, 
-            r.description, 
-            r.country, 
-            r.image_url, 
-            r.user_id, 
-            r.is_public,
-            r.total_days, 
-            r.total_hours, 
-            r.likes_count, 
-            r.events_count, 
-            r.created_at, 
-            r.updated_at,
-            COALESCE(
-                json_agg(
-                    DISTINCT jsonb_build_object('id', t.id, 'name', t.name, 'routes_count', t.routes_count)
-                ) FILTER (WHERE t.id IS NOT NULL),
-                '[]'
-            ) as tags
-        FROM %s r
-        LEFT JOIN %s rt ON r.id = rt.route_id
-        LEFT JOIN %s t ON rt.tag_id = t.id
-        WHERE r.user_id = $1
-        GROUP BY r.id
-        ORDER BY r.created_at DESC
-        LIMIT $2 OFFSET $3
-    `, r.table(), r.routeTagsTable(), r.tagsTable())
+		SELECT id, title, description, country, image_url, user_id, is_public,
+		       total_days, total_hours, likes_count, events_count, created_at, updated_at
+		FROM %s WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, r.table())
 
 	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
 	if err != nil {
@@ -341,13 +308,11 @@ func (r *RouteRepository) ListByUserID(ctx context.Context, userID uuid.UUID, li
 	for rows.Next() {
 		var route models.Route
 		var updatedAt sql.NullTime
-		var tagsJSON []byte
 
 		err := rows.Scan(
 			&route.ID, &route.Title, &route.Description, &route.Country, &route.ImageURL,
 			&route.UserID, &route.IsPublic, &route.TotalDays, &route.TotalHours,
 			&route.LikesCount, &route.EventsCount, &route.CreatedAt, &updatedAt,
-			&tagsJSON,
 		)
 		if err != nil {
 			r.log.Error("RouteRepository.ListByUserID: ошибка сканирования", "error", err)
@@ -357,16 +322,6 @@ func (r *RouteRepository) ListByUserID(ctx context.Context, userID uuid.UUID, li
 		if updatedAt.Valid {
 			route.UpdatedAt = &updatedAt.Time
 		}
-
-		// Парсим JSON с тегами
-		var tags []models.Tag
-		if len(tagsJSON) > 0 && string(tagsJSON) != "[]" {
-			if err := json.Unmarshal(tagsJSON, &tags); err != nil {
-				r.log.Error("RouteRepository.ListByUserID: ошибка парсинга тегов", "error", err)
-			}
-		}
-		route.Tags = tags
-
 		routes = append(routes, route)
 	}
 
@@ -597,12 +552,4 @@ func (r *RouteRepository) IncrementEventsCount(ctx context.Context, routeID uuid
 		return err
 	}
 	return nil
-}
-
-func (r *RouteRepository) routeTagsTable() string {
-	return fmt.Sprintf("%s.route_tags", r.schema)
-}
-
-func (r *RouteRepository) tagsTable() string {
-	return fmt.Sprintf("%s.tags", r.schema)
 }

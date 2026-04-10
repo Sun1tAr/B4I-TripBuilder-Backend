@@ -20,7 +20,6 @@ type Route struct {
 	EventsCount int        `json:"events_count"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	Tags        []Tag      `json:"tags,omitempty"`
 }
 
 type RouteWithDetails struct {
