@@ -230,4 +230,8 @@ func (s *ChatService) PublishMessage(ctx context.Context, eventID uuid.UUID, msg
 	if err := s.redisPubSub.Publish(ctx, eventID, data); err != nil {
 		s.log.Error("PublishMessage: ошибка публикации", "error", err)
 	}
+
+	s.log.Debug("PublishMessage: опубликовано",
+		"eventID", eventID,
+		"data", data)
 }

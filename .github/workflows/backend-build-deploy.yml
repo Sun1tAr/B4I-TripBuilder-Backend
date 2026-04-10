@@ -60,6 +60,10 @@ on:
         description: 'Gateway service port'
         required: true
         type: string
+      gateway_ws_port:
+        description: 'Gateway service port for ws'
+        required: true
+        type: string
       gateway_container_name:
         description: 'Gateway container name'
         required: true
@@ -391,6 +395,7 @@ jobs:
           USER_CONTAINER_NAME=${{ inputs.user_container_name }}
           USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:$HUMAN_TAG
           GATEWAY_PORT=${{ inputs.gateway_port }}
+          GATEWAY_WS_PORT=${{ inputs.gateway_ws_port }}
           GATEWAY_CONTAINER_NAME=${{ inputs.gateway_container_name }}
           GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:$HUMAN_TAG
           POSTGRES_PORT=${{ inputs.postgres_port }}

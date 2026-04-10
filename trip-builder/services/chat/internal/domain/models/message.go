@@ -13,7 +13,7 @@ type MessageType string
 const (
 	MessageTypeText              MessageType = "text"
 	MessageTypeSystem            MessageType = "system"
-	MessageTypeTaskCreated       MessageType = "task_created"
+	MessageTypeTaskCompleted     MessageType = "task_completed"
 	MessageTypeMediaUploaded     MessageType = "media_uploaded"
 	MessageTypeWaypointVisited   MessageType = "waypoint_visited"
 	MessageTypeParticipantJoined MessageType = "participant_joined"

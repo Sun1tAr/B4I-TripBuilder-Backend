@@ -12,7 +12,7 @@ type TaskRepository interface {
 	Create(ctx context.Context, task *models.Task) error
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error)
 	GetByEventID(ctx context.Context, eventID uuid.UUID) ([]models.Task, error)
-	List(ctx context.Context, eventID *uuid.UUID, assignedTo *uuid.UUID, status string, limit, offset int) ([]models.Task, int64, error)
+	List(ctx context.Context, eventID *uuid.UUID, userID uuid.UUID, isOwner bool, limit, offset int) ([]models.Task, int64, error) // изменён
 	Update(ctx context.Context, task *models.Task) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, completedAt *time.Time) error

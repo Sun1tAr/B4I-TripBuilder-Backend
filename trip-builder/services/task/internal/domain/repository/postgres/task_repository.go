@@ -145,27 +145,35 @@ func (r *TaskRepository) GetByEventID(ctx context.Context, eventID uuid.UUID) ([
 	return tasks, nil
 }
 
-func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, assignedTo *uuid.UUID, status string, limit, offset int) ([]models.Task, int64, error) {
+// List возвращает задачи с учётом прав доступа пользователя
+func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, userID uuid.UUID, isOwner bool, limit, offset int) ([]models.Task, int64, error) {
 	args := []interface{}{}
 	argPos := 1
 	conditions := []string{}
 
+	// Базовое условие: событие
 	if eventID != nil {
 		conditions = append(conditions, fmt.Sprintf("event_id = $%d", argPos))
 		args = append(args, *eventID)
 		argPos++
 	}
 
-	if assignedTo != nil {
-		conditions = append(conditions, fmt.Sprintf("assigned_to = $%d", argPos))
-		args = append(args, *assignedTo)
-		argPos++
-	}
-
-	if status != "" {
-		conditions = append(conditions, fmt.Sprintf("status = $%d", argPos))
-		args = append(args, status)
-		argPos++
+	// Условия видимости в зависимости от роли
+	if isOwner {
+		// Владелец видит все задачи события
+		// дополнительных условий не добавляем
+	} else {
+		// Не владелец: видит только:
+		// 1. Задачи, где он создатель
+		// 2. Задачи, где он исполнитель И задача подтверждена
+		// Используем разные плейсхолдеры для каждого параметра
+		visibilityCondition := fmt.Sprintf(
+			"(created_by = $%d OR (assigned_to = $%d AND approved_by_admin = true))",
+			argPos, argPos+1,
+		)
+		conditions = append(conditions, visibilityCondition)
+		args = append(args, userID, userID) // два одинаковых значения, но разных параметра
+		argPos += 2
 	}
 
 	whereClause := ""
@@ -181,23 +189,26 @@ func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, assignedT
 	var total int64
 	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
-		r.log.Error("TaskRepository.List: ошибка подсчёта", "error", err)
+		r.log.Error("TaskRepository.List: ошибка подсчёта", "error", err, "query", countQuery, "args", args)
 		return nil, 0, err
 	}
 
 	// Получаем данные
 	query := fmt.Sprintf(`
-		SELECT id, event_id, title, description, assigned_to, created_by, priority, status, due_date, completed_at, approved_by_admin, created_at, updated_at
-		FROM %s %s
-		ORDER BY due_date ASC NULLS LAST, created_at DESC
-		LIMIT $%d OFFSET $%d
-	`, r.table(), whereClause, argPos, argPos+1)
+        SELECT id, event_id, title, description, assigned_to, created_by, priority, status, 
+               due_date, completed_at, approved_by_admin, created_at, updated_at
+        FROM %s %s
+        ORDER BY due_date ASC NULLS LAST, created_at DESC
+        LIMIT $%d OFFSET $%d
+    `, r.table(), whereClause, argPos, argPos+1)
 
 	args = append(args, limit, offset)
 
+	r.log.Debug("TaskRepository.List: выполнение запроса", "query", query, "args", args)
+
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		r.log.Error("TaskRepository.List: ошибка запроса", "error", err)
+		r.log.Error("TaskRepository.List: ошибка запроса", "error", err, "query", query)
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -205,11 +216,11 @@ func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, assignedT
 	var tasks []models.Task
 	for rows.Next() {
 		var task models.Task
-		var assignedToID, description sql.NullString
+		var assignedTo, description sql.NullString
 		var dueDate, completedAt, updatedAt sql.NullTime
 
 		err := rows.Scan(
-			&task.ID, &task.EventID, &task.Title, &description, &assignedToID,
+			&task.ID, &task.EventID, &task.Title, &description, &assignedTo,
 			&task.CreatedBy, &task.Priority, &task.Status, &dueDate, &completedAt,
 			&task.ApprovedByAdmin, &task.CreatedAt, &updatedAt,
 		)
@@ -221,8 +232,8 @@ func (r *TaskRepository) List(ctx context.Context, eventID *uuid.UUID, assignedT
 		if description.Valid {
 			task.Description = description.String
 		}
-		if assignedToID.Valid {
-			id, _ := uuid.Parse(assignedToID.String)
+		if assignedTo.Valid {
+			id, _ := uuid.Parse(assignedTo.String)
 			task.AssignedTo = &id
 		}
 		if dueDate.Valid {

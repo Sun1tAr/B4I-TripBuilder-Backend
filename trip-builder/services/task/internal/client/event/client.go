@@ -11,6 +11,18 @@ import (
 	"github.com/google/uuid"
 )
 
+// Event структура события (поездки)
+type Event struct {
+	ID        uuid.UUID `json:"id"`
+	Title     string    `json:"title"`
+	OwnerID   uuid.UUID `json:"owner_id"`
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
+	Status    string    `json:"status"`
+	IsGroup   bool      `json:"is_group"`
+	IsPublic  bool      `json:"is_public"`
+}
+
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
@@ -36,7 +48,6 @@ func (c *Client) IsEventOwner(ctx context.Context, eventID, userID uuid.UUID) (b
 		return false, err
 	}
 
-	// Добавляем заголовок X-User-ID
 	req.Header.Set("X-User-ID", userID.String())
 
 	resp, err := c.httpClient.Do(req)
@@ -78,7 +89,6 @@ func (c *Client) IsEventParticipant(ctx context.Context, eventID, userID uuid.UU
 		return false, err
 	}
 
-	// Добавляем заголовок X-User-ID
 	req.Header.Set("X-User-ID", userID.String())
 
 	resp, err := c.httpClient.Do(req)
@@ -109,4 +119,40 @@ func (c *Client) IsEventParticipant(ctx context.Context, eventID, userID uuid.UU
 	}
 
 	return result.IsParticipant, nil
+}
+
+// GetEvent получает информацию о событии по ID
+func (c *Client) GetEvent(ctx context.Context, eventID uuid.UUID) (*Event, error) {
+	url := fmt.Sprintf("%s/api/v1/events/%s", c.baseURL, eventID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Пробрасываем user_id из контекста, если есть
+	if userID, ok := ctx.Value("user_id").(string); ok && userID != "" {
+		req.Header.Set("X-User-ID", userID)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.log.Error("GetEvent: ошибка запроса", "error", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.log.Error("GetEvent: неожиданный статус", "status", resp.StatusCode, "event_id", eventID)
+		return nil, fmt.Errorf("event service returned %d", resp.StatusCode)
+	}
+
+	var event Event
+	if err := json.NewDecoder(resp.Body).Decode(&event); err != nil {
+		c.log.Error("GetEvent: ошибка декодирования", "error", err)
+		return nil, err
+	}
+
+	c.log.Debug("GetEvent: событие получено", "event_id", eventID, "owner_id", event.OwnerID)
+	return &event, nil
 }

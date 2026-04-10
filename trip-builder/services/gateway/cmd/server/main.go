@@ -28,7 +28,7 @@ func main() {
 		Format:      cfg.LogFormat,
 	})
 
-	log.Info("Запуск API Gateway", "port", cfg.HTTPPort)
+	log.Info("Запуск API Gateway", "http_port", cfg.HTTPPort, "ws_port", cfg.WSPort)
 
 	// Запускаем health checker в фоне
 	checker := health.NewChecker(cfg, log)
@@ -36,21 +36,23 @@ func main() {
 	defer cancel()
 	go checker.Start(ctx)
 
-	r := mux.NewRouter()
+	// ========== ОБЩИЕ HEALTH МАРШРУТЫ ==========
+	healthRouter := mux.NewRouter()
+	healthRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+	healthRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
 
-	// Публичные health-эндпоинты
-	r.HandleFunc("/health", handlers.Health).Methods("GET")
-	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	// ========== HTTP СЕРВЕР (REST API) ==========
+	httpRouter := mux.NewRouter()
+	httpRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+	httpRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
 
 	// API роутер с префиксом /api/v1
-	api := r.PathPrefix("/api/v1").Subrouter()
+	api := httpRouter.PathPrefix("/api/v1").Subrouter()
 
 	// ========== УСЛОВНО-ЗАКРЫТЫЕ МАРШРУТЫ (опциональная авторизация) ==========
-	// Эти маршруты доступны всем, но если есть токен — он валидируется и передаётся
 	conditional := api.PathPrefix("").Subrouter()
 	conditional.Use(middleware.AuthOptional(cfg.JWTSecret, log))
 
-	// Events - условно-закрытые (конкретные пути ДО общих)
 	conditional.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
 	conditional.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
 	conditional.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("GET")
@@ -68,7 +70,7 @@ func main() {
 	protected.HandleFunc("/auth/logout", handlers.Proxy(cfg, "auth")).Methods("POST")
 	protected.HandleFunc("/auth/me", handlers.Proxy(cfg, "auth")).Methods("GET")
 
-	// Users - конкретные маршруты ДО общих
+	// Users
 	protected.HandleFunc("/users/me", handlers.Proxy(cfg, "user")).Methods("GET")
 	protected.HandleFunc("/users/me", handlers.Proxy(cfg, "user")).Methods("PUT")
 	protected.HandleFunc("/users/me/avatar", handlers.Proxy(cfg, "user")).Methods("POST")
@@ -79,22 +81,22 @@ func main() {
 	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("DELETE")
 	protected.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
 
-	// Routes - конкретные маршруты ДО общих
+	// Routes
+	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/my", handlers.Proxy(cfg, "route")).Methods("GET")
 	protected.HandleFunc("/routes/{id}/like", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/{id}/likes", handlers.Proxy(cfg, "route")).Methods("GET")
-	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("PUT")
 	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("DELETE")
+	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
 
-	// Routes - условно-закрытые
-	conditional.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
-
-	// Events - защищённые (POST, PUT, DELETE, управление участниками)
+	// Events
 	protected.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
 	protected.HandleFunc("/events/invites", handlers.Proxy(cfg, "event")).Methods("GET")
 	protected.HandleFunc("/events/invites/{invite_id}/accept", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/invites/{invite_id}/decline", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/invites/new", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event")).Methods("GET")
 	protected.HandleFunc("/events/{id}/invite", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
@@ -120,12 +122,11 @@ func main() {
 	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("PUT")
 	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("DELETE")
 
-	// Chat
+	// Chat (REST)
 	protected.HandleFunc("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat")).Methods("GET")
 	protected.HandleFunc("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat")).Methods("POST")
 	protected.HandleFunc("/chat/events/{id}/unread", handlers.Proxy(cfg, "chat")).Methods("GET")
 	protected.HandleFunc("/chat/messages/{id}", handlers.Proxy(cfg, "chat")).Methods("PUT")
-	protected.HandleFunc("/chat/ws/events/{event_id}", handlers.WebSocketProxy(cfg, "chat")).Methods("GET")
 
 	// Media
 	protected.HandleFunc("/media/upload", handlers.Proxy(cfg, "media")).Methods("POST")
@@ -151,61 +152,93 @@ func main() {
 	protected.HandleFunc("/notifications/device", handlers.Proxy(cfg, "notification")).Methods("POST")
 	protected.HandleFunc("/notifications/device/{token}", handlers.Proxy(cfg, "notification")).Methods("DELETE")
 
-	// ========== ОТКРЫТЫЕ МАРШРУТЫ (без авторизации) ==========
+	// ========== ОТКРЫТЫЕ МАРШРУТЫ ==========
 	public := api.PathPrefix("").Subrouter()
 
-	// Auth
 	public.HandleFunc("/auth/register", handlers.Proxy(cfg, "auth")).Methods("POST")
 	public.HandleFunc("/auth/login", handlers.Proxy(cfg, "auth")).Methods("POST")
 	public.HandleFunc("/auth/refresh", handlers.Proxy(cfg, "auth")).Methods("POST")
 	public.HandleFunc("/auth/reset-password", handlers.Proxy(cfg, "auth")).Methods("POST")
 	public.HandleFunc("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth")).Methods("POST")
 
-	// Routes - открытые
 	public.HandleFunc("/routes/popular", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes/tags", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
 	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
 
-	// Events - открытые (уже в conditional, но дубль для безопасности)
-	// public.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET") // уже в conditional
+	// Middleware для HTTP сервера
+	httpHandler := middleware.Recovery(log)(httpRouter)
+	httpHandler = middleware.CORS(cfg)(httpHandler)
+	httpHandler = middleware.Logging(log)(httpHandler)
+	httpHandler = middleware.RateLimit(cfg)(httpHandler)
 
-	// Middleware
-	handler := middleware.Recovery(log)(r)
-	handler = middleware.CORS(cfg)(handler)
-	handler = middleware.Logging(log)(handler)
-	handler = middleware.RateLimit(cfg)(handler)
-
-	srv := &http.Server{
+	httpSrv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
-		Handler:      handler,
+		Handler:      httpHandler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	// ========== WEBSOCKET СЕРВЕР ==========
+	wsRouter := mux.NewRouter()
+	wsRouter.HandleFunc("/health", handlers.Health).Methods("GET")
+	wsRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
 
+	wsAPI := wsRouter.PathPrefix("/api/v1").Subrouter()
+
+	// WebSocket маршрут (только для чата)
+	wsAPI.HandleFunc("/chat/ws/events/{event_id}", handlers.WebSocketProxy(cfg, "chat")).Methods("GET")
+
+	// Middleware для WebSocket сервера (без rate limiting)
+	wsHandler := middleware.Recovery(log)(wsRouter)
+	wsHandler = middleware.CORS(cfg)(wsHandler)
+	wsHandler = middleware.Logging(log)(wsHandler)
+
+	wsSrv := &http.Server{
+		Addr:         ":" + cfg.WSPort,
+		Handler:      wsHandler,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// ========== ЗАПУСК СЕРВЕРОВ ==========
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("Ошибка запуска сервера", "error", err)
+		log.Info("HTTP сервер запущен", "port", cfg.HTTPPort)
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("Ошибка HTTP сервера", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	log.Info("Сервер запущен", "port", cfg.HTTPPort)
+	go func() {
+		log.Info("WebSocket сервер запущен", "port", cfg.WSPort)
+		if err := wsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("Ошибка WebSocket сервера", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Graceful shutdown
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
 	<-done
-	log.Info("Получен сигнал завершения, останавливаемся")
+	log.Info("Получен сигнал завершения, останавливаем серверы")
 
 	cancel() // останавливаем health checker
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("Ошибка при graceful shutdown", "error", err)
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("Ошибка при остановке HTTP сервера", "error", err)
 	}
 
-	log.Info("Сервер остановлен")
+	if err := wsSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error("Ошибка при остановке WebSocket сервера", "error", err)
+	}
+
+	log.Info("Серверы остановлены")
 }

@@ -180,29 +180,18 @@ func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	assignedToStr := r.URL.Query().Get("assigned_to")
-	var assignedTo *uuid.UUID
-	if assignedToStr != "" {
-		id, err := uuid.Parse(assignedToStr)
-		if err == nil {
-			assignedTo = &id
-		}
-	}
-
-	status := r.URL.Query().Get("status")
-
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
 	}
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 || size > 100 {
-		size = 10
+	if size < 1 || size > 10000 {
+		size = 10000
 	}
 
-	log.Debug("GetTasks: параметры", "event_id", eventID, "assigned_to", assignedTo, "status", status, "page", page, "size", size)
+	log.Debug("GetTasks: параметры", "event_id", eventID, "page", page, "size", size)
 
-	tasks, total, err := h.taskService.GetTasks(r.Context(), eventID, assignedTo, status, page, size, userID)
+	tasks, total, err := h.taskService.GetTasks(r.Context(), eventID, *userID, page, size)
 	if err != nil {
 		log.Error("Ошибка получения задач", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
@@ -211,7 +200,6 @@ func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]taskdto.TaskResponse, 0, len(tasks))
 	for _, task := range tasks {
-		// Получаем количество комментариев для каждой задачи
 		commentsCount, _ := h.taskService.GetCommentsCount(r.Context(), task.ID)
 
 		item := taskdto.TaskResponse{

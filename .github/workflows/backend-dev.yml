@@ -48,6 +48,7 @@ jobs:
       user_container_name: trip-builder-backend-user-dev
 
       gateway_port: 9110
+      gateway_ws_port: 9111
       gateway_container_name: trip-builder-backend-gateway-dev
 
       postgres_port: 5422

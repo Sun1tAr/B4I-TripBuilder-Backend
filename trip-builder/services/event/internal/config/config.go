@@ -15,7 +15,7 @@ import (
 type Config struct {
 	config.AppConfig
 
-	// Kafka топики
+	// Kafka топики (существующие)
 	EventCreatedTopic      string `envconfig:"KAFKA_TOPIC_EVENT_CREATED" default:"event.created"`
 	EventUpdatedTopic      string `envconfig:"KAFKA_TOPIC_EVENT_UPDATED" default:"event.updated"`
 	EventCompletedTopic    string `envconfig:"KAFKA_TOPIC_EVENT_COMPLETED" default:"event.completed"`
@@ -39,6 +39,12 @@ type Config struct {
 
 	// Интервал обновления статуса поездок (крон)
 	StatusUpdateInterval time.Duration `envconfig:"STATUS_UPDATE_INTERVAL" default:"10m"`
+
+	// TTL для ссылок-приглашений (в часах, по умолчанию 168 = 7 дней)
+	InviteLinkTTL time.Duration `envconfig:"INVITE_LINK_TTL" default:"168h"`
+
+	// Redis для хранения ссылок-приглашений
+	Redis config.Redis
 }
 
 func (c *Config) GetLogLevel() slog.Level {

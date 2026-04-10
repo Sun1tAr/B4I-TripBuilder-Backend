@@ -18,6 +18,7 @@ type ServiceConfig struct {
 	EventURL        string `envconfig:"EVENT_URL" required:"true"`
 	TaskURL         string `envconfig:"TASK_URL" required:"true"`
 	ChatURL         string `envconfig:"CHAT_URL" required:"true"`
+	ChatWSURL       string `envconfig:"CHAT_WS_URL" required:"true"`
 	MediaURL        string `envconfig:"MEDIA_URL" required:"true"`
 	SearchURL       string `envconfig:"SEARCH_URL" required:"true"`
 	NotificationURL string `envconfig:"NOTIFICATION_URL" required:"true"`
@@ -25,7 +26,8 @@ type ServiceConfig struct {
 
 type Config struct {
 	ServiceName string `envconfig:"SERVICE_NAME" required:"true"`
-	HTTPPort    string `envconfig:"HTTP_PORT" default:"8080"`
+	HTTPPort    string `envconfig:"HTTP_PORT" default:"8090"`
+	WSPort      string `envconfig:"WS_PORT" default:"8091"`
 	LogLevel    string `envconfig:"LOG_LEVEL" default:"info"`
 	LogFormat   string `envconfig:"LOG_FORMAT" default:"console"`
 

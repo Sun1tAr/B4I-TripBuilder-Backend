@@ -79,19 +79,35 @@ func AuthOptional(jwtSecret string, log *logger.Logger) func(http.Handler) http.
 }
 
 // extractAndValidateToken извлекает и валидирует JWT, возвращает user_id и флаг успеха
+// Поддерживает:
+// 1. Authorization: Bearer <token> (стандартный заголовок)
+// 2. ?token=<jwt> (query-параметр для WebSocket и медиа)
 func extractAndValidateToken(r *http.Request, jwtSecret string, log *logger.Logger) (string, bool) {
+	var tokenString string
+
+	// Сначала пробуем из заголовка Authorization
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
+	if authHeader != "" {
+		parts := strings.Split(authHeader, " ")
+		if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+			tokenString = parts[1]
+		}
+	}
+
+	// Если в заголовке нет, пробуем из query-параметра token
+	if tokenString == "" {
+		tokenString = r.URL.Query().Get("token")
+		if tokenString != "" {
+			log.Debug("extractAndValidateToken: token from query parameter")
+		}
+	}
+
+	// Если токена нигде нет
+	if tokenString == "" {
 		return "", false
 	}
 
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		return "", false
-	}
-
-	tokenString := parts[1]
-
+	// Валидируем JWT
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
@@ -100,6 +116,7 @@ func extractAndValidateToken(r *http.Request, jwtSecret string, log *logger.Logg
 	})
 
 	if err != nil || !token.Valid {
+		log.Debug("extractAndValidateToken: invalid token", "error", err)
 		return "", false
 	}
 
@@ -124,26 +141,4 @@ func extractAndValidateToken(r *http.Request, jwtSecret string, log *logger.Logg
 	}
 
 	return userID, true
-}
-
-// Вспомогательная функция для определения типа (оставляем для совместимости)
-func typeof(v interface{}) string {
-	switch v.(type) {
-	case string:
-		return "string"
-	case float64:
-		return "float64"
-	case float32:
-		return "float32"
-	case int:
-		return "int"
-	case int64:
-		return "int64"
-	case bool:
-		return "bool"
-	case nil:
-		return "nil"
-	default:
-		return "unknown"
-	}
 }

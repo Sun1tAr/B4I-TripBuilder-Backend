@@ -22,6 +22,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -77,6 +78,21 @@ func main() {
 	mediaRepo := postgres.NewMediaRepository(db, cfg.Database.Schema, log)
 	commentRepo := postgres.NewCommentRepository(db, cfg.Database.Schema, log)
 
+	// Инициализация Redis клиента для ссылок-приглашений
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+
+	// Проверка Redis
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		log.Error("Redis недоступен", "error", err)
+		os.Exit(1)
+	}
+	log.Info("Подключение к Redis установлено")
+
 	// Инициализация HTTP-клиентов
 	routeClient := route.NewClient(cfg.RouteServiceURL, cfg.HTTPClientTimeout, log)
 	authClient := auth.NewClient(cfg.AuthServiceURL, cfg.HTTPClientTimeout, log)
@@ -94,7 +110,9 @@ func main() {
 		routeClient,
 		authClient,
 		eventProducer,
+		redisClient,
 		log,
+		cfg,
 	)
 
 	// Запуск фонового воркера для обновления статусов поездок
@@ -147,6 +165,9 @@ func main() {
 	protected.HandleFunc("/invites/{invite_id}/accept", eventHandler.AcceptInvite).Methods("POST")
 	protected.HandleFunc("/invites/{invite_id}/decline", eventHandler.DeclineInvite).Methods("POST")
 	protected.HandleFunc("/{id}/invite", eventHandler.InviteParticipants).Methods("POST")
+
+	protected.HandleFunc("/invites/new", eventHandler.CreateInviteLink).Methods("POST")
+	protected.HandleFunc("/invite-link/{link_id}", eventHandler.GetEventByInviteLink).Methods("GET")
 
 	protected.HandleFunc("/{id}/join", eventHandler.JoinEvent).Methods("POST")
 	protected.HandleFunc("/{id}/owner", eventHandler.CheckOwner).Methods("GET")

@@ -168,7 +168,7 @@ func (c *SystemEventConsumer) handleTaskCompleted(ctx context.Context, data json
 
 	text := fmt.Sprintf("Пользователь %s выполнил задачу: %s", eventData.UserID, eventData.Title)
 
-	_, err := c.chatService.SaveSystemMessage(ctx, eventData.EventID, models.MessageTypeTaskCreated, text, map[string]interface{}{
+	_, err := c.chatService.SaveSystemMessage(ctx, eventData.EventID, models.MessageTypeTaskCompleted, text, map[string]interface{}{
 		"user_id": eventData.UserID,
 		"task_id": eventData.TaskID,
 		"title":   eventData.Title,

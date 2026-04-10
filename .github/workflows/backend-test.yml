@@ -48,6 +48,7 @@ jobs:
       user_container_name: trip-builder-backend-user-test
 
       gateway_port: 9010
+      gateway_ws_port: 9011
       gateway_container_name: trip-builder-backend-gateway-test
 
       postgres_port: 5432

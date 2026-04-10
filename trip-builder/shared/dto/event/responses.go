@@ -119,3 +119,34 @@ type InviteResponse struct {
 	UserID            uuid.UUID `json:"user_id"`
 	InvitedAt         time.Time `json:"invited_at"`
 }
+
+// InviteLinkResponse ответ с ссылкой-приглашением
+type InviteLinkResponse struct {
+	LinkID    string    `json:"link_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// WaypointPreviewResponse ДТО для точки в предпросмотре поездки (полная версия)
+type WaypointPreviewResponse struct {
+	ID           uuid.UUID  `json:"id"`
+	City         string     `json:"city"`
+	Description  string     `json:"description,omitempty"`
+	Latitude     float64    `json:"latitude"`
+	Longitude    float64    `json:"longitude"`
+	PlannedStart *time.Time `json:"planned_start,omitempty"`
+	PlannedEnd   *time.Time `json:"planned_end,omitempty"`
+	OrderIndex   int        `json:"order_index"`
+}
+
+// EventPreviewResponse ДТО для предпросмотра поездки по ссылке-приглашению
+type EventPreviewResponse struct {
+	ID                uuid.UUID                 `json:"id"`
+	Title             string                    `json:"title"`
+	Description       string                    `json:"description,omitempty"`
+	StartDate         time.Time                 `json:"start_date"`
+	EndDate           time.Time                 `json:"end_date"`
+	IsGroup           bool                      `json:"is_group"`
+	OwnerID           uuid.UUID                 `json:"owner_id"`
+	ParticipantsCount int                       `json:"participants_count"`
+	Waypoints         []WaypointPreviewResponse `json:"waypoints"`
+}
