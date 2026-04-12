@@ -48,12 +48,33 @@ func main() {
 
 	// API роутер с префиксом /api/v1
 	api := httpRouter.PathPrefix("/api/v1").Subrouter()
+	public := api.PathPrefix("").Subrouter()
+	public.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
 
-	// ========== УСЛОВНО-ЗАКРЫТЫЕ МАРШРУТЫ (опциональная авторизация) ==========
+	public.HandleFunc("/auth/register", handlers.Proxy(cfg, "auth")).Methods("POST")
+	public.HandleFunc("/auth/login", handlers.Proxy(cfg, "auth")).Methods("POST")
+	public.HandleFunc("/auth/refresh", handlers.Proxy(cfg, "auth")).Methods("POST")
+	public.HandleFunc("/auth/reset-password", handlers.Proxy(cfg, "auth")).Methods("POST")
+	public.HandleFunc("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth")).Methods("POST")
+
+	public.HandleFunc("/routes/popular", handlers.Proxy(cfg, "route")).Methods("GET")
+	public.HandleFunc("/routes/tags", handlers.Proxy(cfg, "route")).Methods("GET")
+	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
+	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
+
+	public.HandleFunc("/users/{id}/stats", handlers.Proxy(cfg, "user")).Methods("GET")
+	public.HandleFunc("/users/{id}/achievements", handlers.Proxy(cfg, "user")).Methods("GET")
+	public.HandleFunc("/users/{id}/events", handlers.Proxy(cfg, "user")).Methods("GET")
+	public.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
+
+	public.HandleFunc("/media/event/{eventId}", handlers.Proxy(cfg, "media")).Methods("GET")
+	public.HandleFunc("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media")).Methods("GET")
+	public.HandleFunc("/media/{id}/file", handlers.Proxy(cfg, "media")).Methods("GET")
+	public.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
+
 	conditional := api.PathPrefix("").Subrouter()
 	conditional.Use(middleware.AuthOptional(cfg.JWTSecret, log))
 
-	conditional.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
 	conditional.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
 	conditional.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("GET")
 
@@ -94,9 +115,6 @@ func main() {
 	protected.HandleFunc("/events/invites/new", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event")).Methods("GET")
 	protected.HandleFunc("/events/{id}/invite", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("DELETE")
 	protected.HandleFunc("/events/{id}/join", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}/leave", handlers.Proxy(cfg, "event")).Methods("DELETE")
 	protected.HandleFunc("/events/{id}/accept/{userId}", handlers.Proxy(cfg, "event")).Methods("POST")
@@ -106,6 +124,10 @@ func main() {
 	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/visit", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/media", handlers.Proxy(cfg, "event")).Methods("POST")
 	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/comments", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/{id}/cover", handlers.Proxy(cfg, "event")).Methods("PUT")
+	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
+	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("DELETE")
+	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
 
 	// Tasks
 	protected.HandleFunc("/tasks", handlers.Proxy(cfg, "task")).Methods("GET")
@@ -143,30 +165,6 @@ func main() {
 	protected.HandleFunc("/notifications/read-all", handlers.Proxy(cfg, "notification")).Methods("PUT")
 	protected.HandleFunc("/notifications/device", handlers.Proxy(cfg, "notification")).Methods("POST")
 	protected.HandleFunc("/notifications/device/{token}", handlers.Proxy(cfg, "notification")).Methods("DELETE")
-
-	// ========== ОТКРЫТЫЕ МАРШРУТЫ ==========
-	public := api.PathPrefix("").Subrouter()
-
-	public.HandleFunc("/auth/register", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/login", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/refresh", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/reset-password", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth")).Methods("POST")
-
-	public.HandleFunc("/routes/popular", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes/tags", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
-
-	public.HandleFunc("/users/{id}/stats", handlers.Proxy(cfg, "user")).Methods("GET")
-	public.HandleFunc("/users/{id}/achievements", handlers.Proxy(cfg, "user")).Methods("GET")
-	public.HandleFunc("/users/{id}/events", handlers.Proxy(cfg, "user")).Methods("GET")
-	public.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
-
-	public.HandleFunc("/media/event/{eventId}", handlers.Proxy(cfg, "media")).Methods("GET")
-	public.HandleFunc("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media")).Methods("GET")
-	public.HandleFunc("/media/{id}/file", handlers.Proxy(cfg, "media")).Methods("GET")
-	public.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
 
 	// Middleware для HTTP сервера
 	httpHandler := middleware.Recovery(log)(httpRouter)

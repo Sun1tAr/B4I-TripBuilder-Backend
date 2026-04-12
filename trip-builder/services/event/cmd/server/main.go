@@ -112,7 +112,7 @@ func main() {
 		eventProducer,
 		redisClient,
 		log,
-		cfg,
+		cfg, // ← добавить cfg
 	)
 
 	// Запуск фонового воркера для обновления статусов поездок
@@ -143,7 +143,6 @@ func main() {
 
 	// API роутер с префиксом /api/v1/events
 	api := r.PathPrefix("/api/v1/events").Subrouter()
-	api.Use(middleware.Auth(log))
 
 	// Публичные маршруты (регистрируем первыми)
 	public := api.PathPrefix("").Subrouter()
@@ -169,6 +168,7 @@ func main() {
 	protected.HandleFunc("/invites/new", eventHandler.CreateInviteLink).Methods("POST")
 	protected.HandleFunc("/invite-link/{link_id}", eventHandler.GetEventByInviteLink).Methods("GET")
 
+	protected.HandleFunc("/{id}/cover", eventHandler.UpdateEventCover).Methods("PUT")
 	protected.HandleFunc("/{id}/join", eventHandler.JoinEvent).Methods("POST")
 	protected.HandleFunc("/{id}/owner", eventHandler.CheckOwner).Methods("GET")
 	protected.HandleFunc("/{id}/participant", eventHandler.CheckParticipant).Methods("GET")

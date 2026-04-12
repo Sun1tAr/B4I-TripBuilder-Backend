@@ -68,14 +68,20 @@ func (h *EventHandler) getUserEmailFromContext(r *http.Request) string {
 }
 
 // eventDetailToResponse преобразует детальную модель в DTO ответа
-// eventDetailToResponse преобразует детальную модель в DTO ответа
 func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetailResponse {
+	// Получаем cover_url
+	coverURL := ""
+	if event.CoverURL.Valid {
+		coverURL = event.CoverURL.String
+	}
+
 	resp := &eventdto.EventDetailResponse{
 		EventResponse: eventdto.EventResponse{
 			ID:          event.ID,
 			RouteID:     event.RouteID,
 			Title:       event.Title,
 			Description: event.Description,
+			CoverURL:    coverURL,
 			OwnerID:     event.OwnerID,
 			StartDate:   event.StartDate,
 			EndDate:     event.EndDate,
@@ -119,7 +125,7 @@ func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetail
 	return resp
 }
 
-// GetMyEvents возвращает поездки текущего пользователя (только подтверждённые)
+// GetMyEvents возвращает поездки текущего пользователя
 func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	log.Debug("GetMyEvents: запрос поездок пользователя")
@@ -144,7 +150,6 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	var page, size int
 	var err error
 
-	// Если параметры пагинации не указаны — возвращаем все записи
 	if pageStr == "" && sizeStr == "" {
 		page = 1
 		size = 10000
@@ -179,7 +184,6 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	statsMap, err := h.eventService.GetParticipantsStats(r.Context(), eventIDs)
 	if err != nil {
 		log.Error("Ошибка получения статистики участников", "error", err)
-		// не фатально, продолжаем с пустой статистикой
 		statsMap = make(map[uuid.UUID]eventdto.EventParticipantsStatsDTO)
 	}
 
@@ -187,11 +191,19 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	items := make([]eventdto.EventResponse, 0, len(events))
 	for _, e := range events {
 		stats := statsMap[e.ID]
+
+		// Получаем cover_url
+		coverURL := ""
+		if e.CoverURL.Valid {
+			coverURL = e.CoverURL.String
+		}
+
 		items = append(items, eventdto.EventResponse{
 			ID:                e.ID,
 			RouteID:           e.RouteID,
 			Title:             e.Title,
 			Description:       e.Description,
+			CoverURL:          coverURL,
 			OwnerID:           e.OwnerID,
 			StartDate:         e.StartDate,
 			EndDate:           e.EndDate,
@@ -228,7 +240,7 @@ func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// GetPublicEvents возвращает публичные завершённые поездки
+// GetPublicEvents возвращает публичные поездки
 func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
 	log.Debug("GetPublicEvents: запрос публичных поездок")
@@ -236,10 +248,6 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	pageStr := r.URL.Query().Get("page")
 	sizeStr := r.URL.Query().Get("size")
 
-	log.Debug("GetPublicEvents: параметры запроса",
-		"page", pageStr,
-		"size", sizeStr,
-	)
 	var page, size int
 	var err error
 
@@ -284,11 +292,19 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	items := make([]eventdto.EventResponse, 0, len(events))
 	for _, e := range events {
 		stats := statsMap[e.ID]
+
+		// Получаем cover_url
+		coverURL := ""
+		if e.CoverURL.Valid {
+			coverURL = e.CoverURL.String
+		}
+
 		items = append(items, eventdto.EventResponse{
 			ID:                e.ID,
 			RouteID:           e.RouteID,
 			Title:             e.Title,
 			Description:       e.Description,
+			CoverURL:          coverURL,
 			OwnerID:           e.OwnerID,
 			StartDate:         e.StartDate,
 			EndDate:           e.EndDate,
@@ -1421,4 +1437,62 @@ func (h *EventHandler) GetEventByInviteLink(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// UpdateEventCover обновляет обложку поездки
+func (h *EventHandler) UpdateEventCover(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	vars := mux.Vars(r)
+	eventIDStr := vars["id"]
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		log.Debug("UpdateEventCover: неверный ID", "event_id", eventIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	var req struct {
+		CoverURL string `json:"cover_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debug("UpdateEventCover: ошибка декодирования", "error", err)
+		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+
+	if req.CoverURL == "" {
+		h.writeError(w, http.StatusBadRequest, "cover_url is required", "")
+		return
+	}
+
+	event, err := h.eventService.UpdateEventCover(r.Context(), eventID, *userID, req.CoverURL)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrEventNotFound):
+			h.writeError(w, http.StatusNotFound, "event not found", "")
+		case errors.Is(err, service.ErrNotOwner):
+			h.writeError(w, http.StatusForbidden, "you are not the owner of this event", "")
+		default:
+			log.Error("Ошибка обновления обложки", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	coverURL := ""
+	if event.CoverURL.Valid {
+		coverURL = event.CoverURL.String
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]string{
+		"message":   "cover updated successfully",
+		"cover_url": coverURL,
+	})
 }

@@ -12,6 +12,7 @@ type EventResponse struct {
 	RouteID           uuid.UUID  `json:"route_id"`
 	Title             string     `json:"title"`
 	Description       string     `json:"description,omitempty"`
+	CoverURL          string     `json:"cover_url,omitempty"`
 	OwnerID           uuid.UUID  `json:"owner_id"`
 	StartDate         time.Time  `json:"start_date"`
 	EndDate           time.Time  `json:"end_date"`
@@ -20,8 +21,8 @@ type EventResponse struct {
 	IsPublic          bool       `json:"is_public"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
-	TotalInvites      int        `json:"total_invites"`      // все приглашения (!(approved_by_owner = true & approved_by_user = true))
-	TotalParticipants int        `json:"total_participants"` // активные участники (approved_by_owner = true, approved_by_user = true)
+	TotalInvites      int        `json:"total_invites"`
+	TotalParticipants int        `json:"total_participants"`
 }
 
 // EventParticipantsStatsDTO статистика участников события
@@ -145,6 +146,7 @@ type EventPreviewResponse struct {
 	Description       string                    `json:"description,omitempty"`
 	StartDate         time.Time                 `json:"start_date"`
 	EndDate           time.Time                 `json:"end_date"`
+	CoverURL          string                    `json:"cover_url,omitempty"`
 	IsGroup           bool                      `json:"is_group"`
 	OwnerID           uuid.UUID                 `json:"owner_id"`
 	ParticipantsCount int                       `json:"participants_count"`

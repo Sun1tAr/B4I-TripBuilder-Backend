@@ -22,6 +22,7 @@ type RouteWithWaypoints struct {
 	Title       string          `json:"title"`
 	Description string          `json:"description,omitempty"`
 	Country     string          `json:"country,omitempty"`
+	ImageURL    string          `json:"image_url,omitempty"`
 	UserID      uuid.UUID       `json:"user_id"`
 	IsPublic    bool            `json:"is_public"`
 	Waypoints   []RouteWaypoint `json:"waypoints"`
