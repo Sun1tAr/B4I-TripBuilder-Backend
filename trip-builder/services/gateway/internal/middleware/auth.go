@@ -51,25 +51,14 @@ func AuthOptional(jwtSecret string, log *logger.Logger) func(http.Handler) http.
 				"method", r.Method,
 			)
 
-			authHeader := r.Header.Get("Authorization")
-
-			// Если заголовка нет — анонимный доступ
-			if authHeader == "" {
-				log.Debug("AuthOptional: no token, proceeding as anonymous")
-				next.ServeHTTP(w, r)
-				return
-			}
-
 			// Если заголовок есть — пробуем валидировать
 			userID, ok := extractAndValidateToken(r, jwtSecret, log)
 			if !ok {
-				// Токен есть, но невалидный — возвращаем 401
-				log.Warn("AuthOptional: invalid token, returning 401")
-				handlers.WriteError(w, http.StatusUnauthorized, "invalid authorization token", "")
-				return
+				log.Debug("AuthOptional: no token, proceeding as anonymous")
+			} else {
+				log.Debug("AuthOptional: token valid, setting user_id", "user_id", userID)
 			}
 
-			log.Debug("AuthOptional: token valid, setting user_id", "user_id", userID)
 			r.Header.Set("X-User-ID", userID)
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
 
