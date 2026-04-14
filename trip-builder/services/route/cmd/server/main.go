@@ -20,7 +20,7 @@ import (
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
 
-	"github.com/gorilla/mux"
+	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -82,44 +82,49 @@ func main() {
 	routeHandler := handlers.NewRouteHandler(routeService, log)
 
 	// Роутер
-	r := mux.NewRouter()
+	r := chi.NewRouter()
+
+	// Глобальные middleware
+	r.Use(sharedMiddleware.RequestID)
+	r.Use(sharedMiddleware.Logging(log))
+	r.Use(sharedMiddleware.Recover(log))
 
 	// Публичные health-эндпоинты
-	r.HandleFunc("/health", handlers.Health).Methods("GET")
-	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	r.Get("/health", handlers.Health)
+	r.Get("/ready", handlers.Ready)
 
 	// API роутер с префиксом /api/v1/routes
-	api := r.PathPrefix("/api/v1/routes").Subrouter()
+	r.Route("/api/v1/routes", func(r chi.Router) {
+		// ========== ПУБЛИЧНЫЕ МАРШРУТЫ (без авторизации) ==========
+		r.Group(func(r chi.Router) {
+			r.Get("/popular", routeHandler.GetPopularRoutes)
+			r.Get("/tags", routeHandler.GetAllTags)
+			r.Get("/tag/{tag}", routeHandler.GetRoutesByTag)
+		})
 
-	// Публичные маршруты (тоже конкретные перед общими)
-	public := api.PathPrefix("").Subrouter()
+		// ========== УСЛОВНО-ЗАКРЫТЫЕ (опциональная авторизация) ==========
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.AuthOptional(log))
+			r.Get("/{id}", routeHandler.GetRouteByID)
+			r.Get("/", routeHandler.GetPublicRoutes)
+		})
 
-	public.HandleFunc("/popular", routeHandler.GetPopularRoutes).Methods("GET")
-	public.HandleFunc("/tags", routeHandler.GetAllTags).Methods("GET")
-	public.HandleFunc("/tag/{tag}", routeHandler.GetRoutesByTag).Methods("GET")
-	public.HandleFunc("", routeHandler.GetPublicRoutes).Methods("GET")
+		// ========== ЗАКРЫТЫЕ МАРШРУТЫ (требуют авторизацию) ==========
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.AuthRequired(log))
 
-	// Они могут работать с userID = nil, что означает анонимный доступ
-	// Защищённые маршруты (более конкретные - сначала)
-	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.Auth(log))
-
-	protected.HandleFunc("/my", routeHandler.GetMyRoutes).Methods("GET")
-	protected.HandleFunc("", routeHandler.CreateRoute).Methods("POST")
-	protected.HandleFunc("/{id}/like", routeHandler.ToggleLike).Methods("POST")
-	protected.HandleFunc("/{id}/likes", routeHandler.GetRouteLikes).Methods("GET")
-	protected.HandleFunc("/{id}", routeHandler.GetRouteByID).Methods("GET")
-	protected.HandleFunc("/{id}", routeHandler.UpdateRoute).Methods("PUT")
-	protected.HandleFunc("/{id}", routeHandler.DeleteRoute).Methods("DELETE")
-
-	// Общие middleware
-	handler := sharedMiddleware.RequestID(r)
-	handler = sharedMiddleware.Logging(log)(handler)
-	handler = sharedMiddleware.Recover(log)(handler)
+			r.Get("/my", routeHandler.GetMyRoutes)
+			r.Post("/", routeHandler.CreateRoute)
+			r.Post("/{id}/like", routeHandler.ToggleLike)
+			r.Get("/{id}/likes", routeHandler.GetRouteLikes)
+			r.Put("/{id}", routeHandler.UpdateRoute)
+			r.Delete("/{id}", routeHandler.DeleteRoute)
+		})
+	})
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
-		Handler:      handler,
+		Handler:      r,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

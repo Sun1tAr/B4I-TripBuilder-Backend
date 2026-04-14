@@ -12,6 +12,7 @@ import (
 	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
 	routedto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/route"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -52,10 +53,10 @@ func (h *RouteHandler) getUserIDFromContext(r *http.Request) *uuid.UUID {
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		h.log.Debug("Неверный формат user_id в контексте", "user_id", userIDStr)
+		h.log.Debug("getUserIDFromContext: Неверный формат user_id в контексте", "user_id", userIDStr)
 		return nil
 	}
-
+	h.log.Debug("getUserIDFromContext: возвращен ID", "user_id", &userID)
 	return &userID
 }
 
@@ -117,8 +118,8 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 || size > 100 {
-		size = 10
+	if size < 1 || size > 10000 {
+		size = 10000
 	}
 	sort := r.URL.Query().Get("sort")
 	if sort == "" {
@@ -155,6 +156,7 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := h.getUserIDFromContext(r) // может быть nil для анонимов
+	log.Debug("GetPublicRoutes: фактический User ID", "user_id", userID)
 
 	routes, total, err := h.routeService.ListPublicRoutes(r.Context(), page, size, sort, filters, userID)
 	if err != nil {
@@ -181,6 +183,7 @@ func (h *RouteHandler) GetPublicRoutes(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:   route.CreatedAt,
 			UpdatedAt:   route.UpdatedAt,
 		}
+		log.Debug("GetPublicRoutes: create item", "Item id", route.ID, "ItemLike", route.IsLiked)
 	}
 
 	totalPages := (int(total) + size - 1) / size
@@ -237,6 +240,7 @@ func (h *RouteHandler) GetMyRoutes(w http.ResponseWriter, r *http.Request) {
 			TotalHours:  route.TotalHours,
 			LikesCount:  route.LikesCount,
 			EventsCount: route.EventsCount,
+			IsLiked:     route.IsLiked,
 			CreatedAt:   route.CreatedAt,
 			UpdatedAt:   route.UpdatedAt,
 		}
@@ -258,8 +262,7 @@ func (h *RouteHandler) GetMyRoutes(w http.ResponseWriter, r *http.Request) {
 // GetRouteByID возвращает маршрут по ID
 func (h *RouteHandler) GetRouteByID(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	routeIDStr := vars["id"]
+	routeIDStr := chi.URLParam(r, "id")
 
 	routeID, err := uuid.Parse(routeIDStr)
 	if err != nil {
@@ -350,8 +353,7 @@ func (h *RouteHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 // UpdateRoute обновляет маршрут
 func (h *RouteHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	routeIDStr := vars["id"]
+	routeIDStr := chi.URLParam(r, "id")
 
 	routeID, err := uuid.Parse(routeIDStr)
 	if err != nil {
@@ -424,8 +426,7 @@ func (h *RouteHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 // DeleteRoute удаляет маршрут
 func (h *RouteHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	routeIDStr := vars["id"]
+	routeIDStr := chi.URLParam(r, "id")
 
 	routeID, err := uuid.Parse(routeIDStr)
 	if err != nil {
@@ -460,8 +461,7 @@ func (h *RouteHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 // ToggleLike ставит или убирает лайк
 func (h *RouteHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	routeIDStr := vars["id"]
+	routeIDStr := chi.URLParam(r, "id")
 
 	routeID, err := uuid.Parse(routeIDStr)
 	if err != nil {
@@ -497,8 +497,7 @@ func (h *RouteHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 // GetRouteLikes возвращает список пользователей, лайкнувших маршрут
 func (h *RouteHandler) GetRouteLikes(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	routeIDStr := vars["id"]
+	routeIDStr := chi.URLParam(r, "id")
 
 	routeID, err := uuid.Parse(routeIDStr)
 	if err != nil {

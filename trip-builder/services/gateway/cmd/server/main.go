@@ -13,7 +13,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/health"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/middleware"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
-	"github.com/gorilla/mux"
+	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 )
 
@@ -36,168 +36,176 @@ func main() {
 	defer cancel()
 	go checker.Start(ctx)
 
-	// ========== ОБЩИЕ HEALTH МАРШРУТЫ ==========
-	healthRouter := mux.NewRouter()
-	healthRouter.HandleFunc("/health", handlers.Health).Methods("GET")
-	healthRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
-
 	// ========== HTTP СЕРВЕР (REST API) ==========
-	httpRouter := mux.NewRouter()
-	httpRouter.HandleFunc("/health", handlers.Health).Methods("GET")
-	httpRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	httpRouter := chi.NewRouter()
 
-	// API роутер с префиксом /api/v1
-	api := httpRouter.PathPrefix("/api/v1").Subrouter()
+	// Глобальные middleware
+	httpRouter.Use(middleware.Recovery(log))
+	httpRouter.Use(middleware.CORS(cfg))
+	httpRouter.Use(middleware.Logging(log))
+	httpRouter.Use(middleware.RateLimit(cfg))
 
-	// ========== УСЛОВНО-ЗАКРЫТЫЕ МАРШРУТЫ (опциональная авторизация) ==========
-	conditional := api.PathPrefix("").Subrouter()
-	conditional.Use(middleware.AuthOptional(cfg.JWTSecret, log))
+	// Health эндпоинты
+	httpRouter.Get("/health", handlers.Health)
+	httpRouter.Get("/ready", handlers.Ready)
 
-	conditional.HandleFunc("/events/public", handlers.Proxy(cfg, "event")).Methods("GET")
-	conditional.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
-	conditional.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("GET")
+	// API v1
+	httpRouter.Route("/api/v1", func(r chi.Router) {
+		// ========== ПУБЛИЧНЫЕ МАРШРУТЫ (без авторизации) ==========
+		r.Group(func(r chi.Router) {
+			// Auth
+			r.Post("/auth/register", handlers.Proxy(cfg, "auth"))
+			r.Post("/auth/login", handlers.Proxy(cfg, "auth"))
+			r.Post("/auth/refresh", handlers.Proxy(cfg, "auth"))
+			r.Post("/auth/reset-password", handlers.Proxy(cfg, "auth"))
+			r.Post("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth"))
 
-	// Search - условно-закрытые
-	conditional.HandleFunc("/search/routes", handlers.Proxy(cfg, "search")).Methods("GET")
-	conditional.HandleFunc("/search/events", handlers.Proxy(cfg, "search")).Methods("GET")
-	conditional.HandleFunc("/search/suggest", handlers.Proxy(cfg, "search")).Methods("GET")
+			// Routes
+			r.Get("/routes/popular", handlers.Proxy(cfg, "route"))
+			r.Get("/routes/tags", handlers.Proxy(cfg, "route"))
+			r.Get("/routes/tag/{tag}", handlers.Proxy(cfg, "route"))
 
-	// ========== ЗАКРЫТЫЕ МАРШРУТЫ (требуют авторизацию) ==========
-	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.AuthRequired(cfg.JWTSecret, log))
+			// Events
+			r.Get("/events/public", handlers.Proxy(cfg, "event"))
 
-	// Auth
-	protected.HandleFunc("/auth/logout", handlers.Proxy(cfg, "auth")).Methods("POST")
-	protected.HandleFunc("/auth/me", handlers.Proxy(cfg, "auth")).Methods("GET")
+			// Users (публичные профили)
+			r.Get("/users/{id}/stats", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}/achievements", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}/events", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}", handlers.Proxy(cfg, "user"))
 
-	// Users
-	protected.HandleFunc("/users/me", handlers.Proxy(cfg, "user")).Methods("GET")
-	protected.HandleFunc("/users/me", handlers.Proxy(cfg, "user")).Methods("PUT")
-	protected.HandleFunc("/users/me/avatar", handlers.Proxy(cfg, "user")).Methods("POST")
-	protected.HandleFunc("/users/{id}/stats", handlers.Proxy(cfg, "user")).Methods("GET")
-	protected.HandleFunc("/users/{id}/achievements", handlers.Proxy(cfg, "user")).Methods("GET")
-	protected.HandleFunc("/users/{id}/events", handlers.Proxy(cfg, "user")).Methods("GET")
-	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("POST")
-	protected.HandleFunc("/users/{id}/follow", handlers.Proxy(cfg, "user")).Methods("DELETE")
-	protected.HandleFunc("/users/{id}", handlers.Proxy(cfg, "user")).Methods("GET")
+			// Media (публичные файлы)
+			r.Get("/media/event/{eventId}", handlers.Proxy(cfg, "media"))
+			r.Get("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media"))
+			r.Get("/media/{id}/file", handlers.Proxy(cfg, "media"))
+			r.Get("/media/{id}", handlers.Proxy(cfg, "media"))
+		})
 
-	// Routes
-	protected.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("POST")
-	protected.HandleFunc("/routes/my", handlers.Proxy(cfg, "route")).Methods("GET")
-	protected.HandleFunc("/routes/{id}/like", handlers.Proxy(cfg, "route")).Methods("POST")
-	protected.HandleFunc("/routes/{id}/likes", handlers.Proxy(cfg, "route")).Methods("GET")
-	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("PUT")
-	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("DELETE")
-	protected.HandleFunc("/routes/{id}", handlers.Proxy(cfg, "route")).Methods("GET")
+		// ========== УСЛОВНО-ЗАКРЫТЫЕ (опциональная авторизация) ==========
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.AuthOptional(cfg.JWTSecret, log))
 
-	// Events
-	protected.HandleFunc("/events/my", handlers.Proxy(cfg, "event")).Methods("GET")
-	protected.HandleFunc("/events/invites", handlers.Proxy(cfg, "event")).Methods("GET")
-	protected.HandleFunc("/events/invites/{invite_id}/accept", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/invites/{invite_id}/decline", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/invites/new", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event")).Methods("GET")
-	protected.HandleFunc("/events/{id}/invite", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("PUT")
-	protected.HandleFunc("/events/{id}", handlers.Proxy(cfg, "event")).Methods("DELETE")
-	protected.HandleFunc("/events/{id}/join", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}/leave", handlers.Proxy(cfg, "event")).Methods("DELETE")
-	protected.HandleFunc("/events/{id}/accept/{userId}", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}/decline/{userId}", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}/participants", handlers.Proxy(cfg, "event")).Methods("GET")
-	protected.HandleFunc("/events/{id}/waypoints", handlers.Proxy(cfg, "event")).Methods("GET")
-	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/visit", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/media", handlers.Proxy(cfg, "event")).Methods("POST")
-	protected.HandleFunc("/events/{id}/waypoints/{waypointId}/comments", handlers.Proxy(cfg, "event")).Methods("POST")
+			r.Get("/routes", handlers.Proxy(cfg, "route"))
 
-	// Tasks
-	protected.HandleFunc("/tasks", handlers.Proxy(cfg, "task")).Methods("GET")
-	protected.HandleFunc("/tasks", handlers.Proxy(cfg, "task")).Methods("POST")
-	protected.HandleFunc("/tasks/templates", handlers.Proxy(cfg, "task")).Methods("GET")
-	protected.HandleFunc("/tasks/{id}/approve", handlers.Proxy(cfg, "task")).Methods("POST")
-	protected.HandleFunc("/tasks/{id}/comments", handlers.Proxy(cfg, "task")).Methods("POST")
-	protected.HandleFunc("/tasks/{id}/comments", handlers.Proxy(cfg, "task")).Methods("GET")
-	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("GET")
-	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("PUT")
-	protected.HandleFunc("/tasks/{id}", handlers.Proxy(cfg, "task")).Methods("DELETE")
+			r.Get("/events/my", handlers.Proxy(cfg, "event"))
+			r.Get("/events/{id}", handlers.Proxy(cfg, "event"))
 
-	// Chat (REST)
-	protected.HandleFunc("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat")).Methods("GET")
-	protected.HandleFunc("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat")).Methods("POST")
-	protected.HandleFunc("/chat/events/{id}/unread", handlers.Proxy(cfg, "chat")).Methods("GET")
-	protected.HandleFunc("/chat/messages/{id}", handlers.Proxy(cfg, "chat")).Methods("PUT")
+			// Search
+			r.Get("/search/routes", handlers.Proxy(cfg, "search"))
+			r.Get("/search/events", handlers.Proxy(cfg, "search"))
+			r.Get("/search/suggest", handlers.Proxy(cfg, "search"))
 
-	// Media
-	protected.HandleFunc("/media/upload", handlers.Proxy(cfg, "media")).Methods("POST")
-	protected.HandleFunc("/media/upload/batch", handlers.Proxy(cfg, "media")).Methods("POST")
-	protected.HandleFunc("/media/event/{eventId}", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/waypoint/{waypointId}", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/{id}/file", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("GET")
-	protected.HandleFunc("/media/{id}", handlers.Proxy(cfg, "media")).Methods("DELETE")
+			r.Get("/routes/{id}", handlers.Proxy(cfg, "route"))
+		})
 
-	// вынесли в MVP1
-	protected.HandleFunc("/albums", handlers.Proxy(cfg, "media")).Methods("POST")
-	protected.HandleFunc("/albums/{id}", handlers.Proxy(cfg, "media")).Methods("PUT")
-	protected.HandleFunc("/albums/{id}/media", handlers.Proxy(cfg, "media")).Methods("POST")
+		// ========== ЗАКРЫТЫЕ МАРШРУТЫ (требуют авторизацию) ==========
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.AuthRequired(cfg.JWTSecret, log))
 
-	// Search
-	protected.HandleFunc("/search/users", handlers.Proxy(cfg, "search")).Methods("GET")
+			// Auth
+			r.Post("/auth/logout", handlers.Proxy(cfg, "auth"))
+			r.Get("/auth/me", handlers.Proxy(cfg, "auth"))
 
-	// Notifications
-	protected.HandleFunc("/notifications", handlers.Proxy(cfg, "notification")).Methods("GET")
-	protected.HandleFunc("/notifications/{id}/read", handlers.Proxy(cfg, "notification")).Methods("PUT")
-	protected.HandleFunc("/notifications/read-all", handlers.Proxy(cfg, "notification")).Methods("PUT")
-	protected.HandleFunc("/notifications/device", handlers.Proxy(cfg, "notification")).Methods("POST")
-	protected.HandleFunc("/notifications/device/{token}", handlers.Proxy(cfg, "notification")).Methods("DELETE")
+			// Users
+			r.Get("/users/me", handlers.Proxy(cfg, "user"))
+			r.Put("/users/me", handlers.Proxy(cfg, "user"))
+			r.Post("/users/me/avatar", handlers.Proxy(cfg, "user"))
+			r.Post("/users/{id}/follow", handlers.Proxy(cfg, "user"))
+			r.Delete("/users/{id}/follow", handlers.Proxy(cfg, "user"))
 
-	// ========== ОТКРЫТЫЕ МАРШРУТЫ ==========
-	public := api.PathPrefix("").Subrouter()
+			// Routes
+			r.Post("/routes", handlers.Proxy(cfg, "route"))
+			r.Get("/routes/my", handlers.Proxy(cfg, "route"))
+			r.Post("/routes/{id}/like", handlers.Proxy(cfg, "route"))
+			r.Get("/routes/{id}/likes", handlers.Proxy(cfg, "route"))
+			r.Put("/routes/{id}", handlers.Proxy(cfg, "route"))
+			r.Delete("/routes/{id}", handlers.Proxy(cfg, "route"))
 
-	public.HandleFunc("/auth/register", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/login", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/refresh", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/reset-password", handlers.Proxy(cfg, "auth")).Methods("POST")
-	public.HandleFunc("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth")).Methods("POST")
+			// Events
+			r.Get("/events/my", handlers.Proxy(cfg, "event"))
+			r.Get("/events/invites", handlers.Proxy(cfg, "event"))
+			r.Post("/events/invites/{invite_id}/accept", handlers.Proxy(cfg, "event"))
+			r.Post("/events/invites/{invite_id}/decline", handlers.Proxy(cfg, "event"))
+			r.Post("/events/invites/new", handlers.Proxy(cfg, "event"))
+			r.Get("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/invite", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/join", handlers.Proxy(cfg, "event"))
+			r.Delete("/events/{id}/leave", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/accept/{userId}", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/decline/{userId}", handlers.Proxy(cfg, "event"))
+			r.Get("/events/{id}/participants", handlers.Proxy(cfg, "event"))
+			r.Get("/events/{id}/waypoints", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/waypoints/{waypointId}/visit", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/waypoints/{waypointId}/media", handlers.Proxy(cfg, "event"))
+			r.Post("/events/{id}/waypoints/{waypointId}/comments", handlers.Proxy(cfg, "event"))
+			r.Put("/events/{id}/cover", handlers.Proxy(cfg, "event"))
+			r.Post("/events", handlers.Proxy(cfg, "event"))
+			r.Delete("/events/{id}", handlers.Proxy(cfg, "event"))
+			r.Put("/events/{id}", handlers.Proxy(cfg, "event"))
 
-	public.HandleFunc("/routes/popular", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes/tags", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes/tag/{tag}", handlers.Proxy(cfg, "route")).Methods("GET")
-	public.HandleFunc("/routes", handlers.Proxy(cfg, "route")).Methods("GET")
+			// Tasks
+			r.Get("/tasks", handlers.Proxy(cfg, "task"))
+			r.Post("/tasks", handlers.Proxy(cfg, "task"))
+			r.Get("/tasks/templates", handlers.Proxy(cfg, "task"))
+			r.Post("/tasks/{id}/approve", handlers.Proxy(cfg, "task"))
+			r.Post("/tasks/{id}/comments", handlers.Proxy(cfg, "task"))
+			r.Get("/tasks/{id}/comments", handlers.Proxy(cfg, "task"))
+			r.Get("/tasks/{id}", handlers.Proxy(cfg, "task"))
+			r.Put("/tasks/{id}", handlers.Proxy(cfg, "task"))
+			r.Delete("/tasks/{id}", handlers.Proxy(cfg, "task"))
 
-	// Middleware для HTTP сервера
-	httpHandler := middleware.Recovery(log)(httpRouter)
-	httpHandler = middleware.CORS(cfg)(httpHandler)
-	httpHandler = middleware.Logging(log)(httpHandler)
-	httpHandler = middleware.RateLimit(cfg)(httpHandler)
+			// Chat (REST)
+			r.Get("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat"))
+			r.Post("/chat/events/{id}/messages", handlers.Proxy(cfg, "chat"))
+			r.Get("/chat/events/{id}/unread", handlers.Proxy(cfg, "chat"))
+			r.Put("/chat/messages/{id}", handlers.Proxy(cfg, "chat"))
+
+			// Media
+			r.Post("/media/upload", handlers.Proxy(cfg, "media"))
+			r.Post("/media/upload/batch", handlers.Proxy(cfg, "media"))
+			r.Delete("/media/{id}", handlers.Proxy(cfg, "media"))
+
+			// Albums (MVP1)
+			r.Post("/albums", handlers.Proxy(cfg, "media"))
+			r.Put("/albums/{id}", handlers.Proxy(cfg, "media"))
+			r.Post("/albums/{id}/media", handlers.Proxy(cfg, "media"))
+
+			// Search
+			r.Get("/search/users", handlers.Proxy(cfg, "search"))
+
+			// Notifications
+			r.Get("/notifications", handlers.Proxy(cfg, "notification"))
+			r.Put("/notifications/{id}/read", handlers.Proxy(cfg, "notification"))
+			r.Put("/notifications/read-all", handlers.Proxy(cfg, "notification"))
+			r.Post("/notifications/device", handlers.Proxy(cfg, "notification"))
+			r.Delete("/notifications/device/{token}", handlers.Proxy(cfg, "notification"))
+		})
+	})
 
 	httpSrv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
-		Handler:      httpHandler,
+		Handler:      httpRouter,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
 	// ========== WEBSOCKET СЕРВЕР ==========
-	wsRouter := mux.NewRouter()
-	wsRouter.HandleFunc("/health", handlers.Health).Methods("GET")
-	wsRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	wsRouter := chi.NewRouter()
+	wsRouter.Use(middleware.Recovery(log))
+	wsRouter.Use(middleware.CORS(cfg))
+	wsRouter.Use(middleware.Logging(log))
 
-	wsAPI := wsRouter.PathPrefix("/api/v1").Subrouter()
+	wsRouter.Get("/health", handlers.Health)
+	wsRouter.Get("/ready", handlers.Ready)
 
-	// WebSocket маршрут (только для чата)
-	wsAPI.HandleFunc("/chat/ws/events/{event_id}", handlers.WebSocketProxy(cfg, "chat")).Methods("GET")
-
-	// Middleware для WebSocket сервера (без rate limiting)
-	wsHandler := middleware.Recovery(log)(wsRouter)
-	wsHandler = middleware.CORS(cfg)(wsHandler)
-	wsHandler = middleware.Logging(log)(wsHandler)
+	wsRouter.Route("/api/v1", func(r chi.Router) {
+		r.Get("/chat/ws/events/{event_id}", handlers.WebSocketProxy(cfg, "chat"))
+	})
 
 	wsSrv := &http.Server{
 		Addr:         ":" + cfg.WSPort,
-		Handler:      wsHandler,
+		Handler:      wsRouter,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -227,7 +235,7 @@ func main() {
 	<-done
 	log.Info("Получен сигнал завершения, останавливаем серверы")
 
-	cancel() // останавливаем health checker
+	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()

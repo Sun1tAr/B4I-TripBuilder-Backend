@@ -6,20 +6,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateEventRequest DTO для создания поездки
 type CreateEventRequest struct {
 	RouteID       uuid.UUID `json:"route_id" validate:"required"`
 	Title         string    `json:"title" validate:"required,min=3"`
 	Description   string    `json:"description,omitempty"`
+	CoverURL      string    `json:"cover_url,omitempty"` // NEW
 	StartDate     time.Time `json:"start_date" validate:"required"`
 	IsGroup       bool      `json:"is_group"`
 	InvitedEmails []string  `json:"invited_emails,omitempty"`
 }
 
-// UpdateEventRequest DTO для обновления поездки
 type UpdateEventRequest struct {
 	Title       *string    `json:"title,omitempty"`
 	Description *string    `json:"description,omitempty"`
+	CoverURL    *string    `json:"cover_url,omitempty"` // NEW
 	StartDate   *time.Time `json:"start_date,omitempty"`
 	IsPublic    *bool      `json:"is_public,omitempty"`
 }

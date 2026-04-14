@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -148,78 +149,6 @@ func (s *EventService) GetPublicEvents(ctx context.Context, page, size int) ([]m
 
 	offset := (page - 1) * size
 	return s.eventRepo.ListPublic(ctx, size, offset)
-}
-
-// UpdateEvent обновляет поездку
-func (s *EventService) UpdateEvent(ctx context.Context, eventID, userID uuid.UUID, req *models.UpdateEventRequest) (*models.Event, error) {
-	s.log.Debug("UpdateEvent: начало", "event_id", eventID, "user_id", userID)
-
-	// Проверяем права
-	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
-	if err != nil {
-		return nil, err
-	}
-	if !isOwner {
-		return nil, ErrNotOwner
-	}
-
-	// Получаем событие
-	event, err := s.eventRepo.GetByID(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if event == nil {
-		return nil, ErrEventNotFound
-	}
-
-	// Обновляем поля
-	if req.Title != nil {
-		event.Title = *req.Title
-	}
-	if req.Description != nil {
-		event.Description = *req.Description
-	}
-	if req.IsPublic != nil {
-		event.IsPublic = *req.IsPublic
-	}
-
-	// Если меняется дата начала, нужно пересчитать точки
-	if req.StartDate != nil && !req.StartDate.Equal(event.StartDate) {
-		if req.StartDate.Before(time.Now()) {
-			return nil, ErrInvalidStartDate
-		}
-		event.StartDate = *req.StartDate
-
-		waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
-		if err != nil {
-			s.log.Error("UpdateEvent: ошибка получения точек для пересчёта", "error", err)
-		} else {
-			newWaypoints := s.recalculateWaypointDates(waypoints, event.StartDate)
-			for i, wp := range newWaypoints {
-				if err := s.waypointRepo.Update(ctx, &wp); err != nil {
-					s.log.Error("UpdateEvent: ошибка обновления точки", "error", err, "waypoint_id", wp.ID)
-				} else {
-					waypoints[i] = wp
-				}
-			}
-
-			if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
-				event.EndDate = *waypoints[len(waypoints)-1].PlannedEnd
-			}
-		}
-	}
-
-	// Сохраняем изменения
-	if err := s.eventRepo.Update(ctx, event); err != nil {
-		return nil, err
-	}
-
-	// Публикуем событие
-	if err := s.producer.PublishEventUpdated(ctx, eventID, userID, event.Title, event.StartDate, event.EndDate, event.IsPublic); err != nil {
-		s.log.Error("UpdateEvent: ошибка публикации события", "error", err)
-	}
-
-	return event, nil
 }
 
 // DeleteEvent удаляет/отменяет поездку
@@ -704,131 +633,6 @@ func (s *EventService) GetUserEmail(ctx context.Context, userID uuid.UUID) (stri
 	return s.authClient.GetUserEmail(ctx, userID)
 }
 
-// CreateEvent создаёт новую поездку
-func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *models.CreateEventRequest) (*models.EventWithDetails, error) {
-	s.log.Debug("CreateEvent: начало", "user_id", userID, "route_id", req.RouteID, "title", req.Title, "start_date", req.StartDate)
-
-	// Проверяем дату начала
-	if req.StartDate.Before(time.Now()) {
-		s.log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
-		return nil, ErrInvalidStartDate
-	}
-
-	// Получаем маршрут из Route Service
-	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, req.RouteID.String())
-	if err != nil {
-		s.log.Error("CreateEvent: ошибка получения маршрута", "error", err, "route_id", req.RouteID)
-		return nil, fmt.Errorf("failed to get route: %w", err)
-	}
-
-	// Создаём ID события
-	eventID := uuid.New()
-	now := time.Now()
-
-	// Рассчитываем даты точек
-	waypoints := s.calculateWaypointDates(routeData.Waypoints, req.StartDate, eventID)
-
-	// Вычисляем дату окончания
-	endDate := req.StartDate
-	if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
-		endDate = *waypoints[len(waypoints)-1].PlannedEnd
-	}
-
-	// Создаём событие
-	event := &models.Event{
-		ID:          eventID,
-		RouteID:     req.RouteID,
-		Title:       req.Title,
-		Description: req.Description,
-		OwnerID:     userID,
-		StartDate:   req.StartDate,
-		EndDate:     endDate,
-		IsGroup:     req.IsGroup,
-		Status:      "planned",
-		IsPublic:    false,
-		CreatedAt:   now,
-	}
-
-	// Создаём событие и точки в одной транзакции
-	if err := s.eventRepo.CreateWithWaypoints(ctx, event, waypoints); err != nil {
-		s.log.Error("CreateEvent: ошибка создания события с точками", "error", err, "event_id", eventID)
-		return nil, err
-	}
-
-	// Добавляем владельца: approved_by_owner = true, approved_by_user = true
-	approvedTrue := true
-	participant := &models.Participant{
-		InviteID:        uuid.New(),
-		EventID:         eventID,
-		UserID:          userID,
-		Role:            "owner",
-		ApprovedByOwner: true,
-		ApprovedByUser:  &approvedTrue,
-	}
-	if err := s.participantRepo.Add(ctx, participant); err != nil {
-		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
-	}
-
-	// Обрабатываем приглашения
-	participants := []uuid.UUID{userID}
-	if req.IsGroup && len(req.InvitedEmails) > 0 {
-		for _, email := range req.InvitedEmails {
-			// Проверяем, существует ли пользователь
-			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
-			if err != nil {
-				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
-				continue
-			}
-
-			var invite *models.Participant
-
-			if userInfo != nil {
-				// Пользователь уже зарегистрирован
-				invite = &models.Participant{
-					InviteID:        uuid.New(),
-					EventID:         eventID,
-					UserID:          userInfo.UserID,
-					Role:            "member",
-					ApprovedByOwner: true,
-					ApprovedByUser:  nil, // null = приглашение
-					InvitedEmail:    "",
-				}
-				participants = append(participants, userInfo.UserID)
-				s.log.Trace("CreateEvent: пользователь найден, создаём приглашение", "event_id", eventID, "user_id", userInfo.UserID, "email", email)
-			} else {
-				// Пользователь не зарегистрирован
-				invite = &models.Participant{
-					InviteID:        uuid.New(),
-					EventID:         eventID,
-					UserID:          uuid.Nil,
-					Role:            "member",
-					ApprovedByOwner: true,
-					ApprovedByUser:  nil, // null = приглашение
-					InvitedEmail:    email,
-				}
-				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение", "event_id", eventID, "email", email)
-			}
-
-			if err := s.participantRepo.Add(ctx, invite); err != nil {
-				s.log.Error("CreateEvent: ошибка создания", "error", err, "email", email)
-			}
-		}
-	}
-
-	// Публикуем событие
-	if err := s.producer.PublishEventCreated(ctx, eventID, req.RouteID, userID, req.Title, req.StartDate, endDate, participants); err != nil {
-		s.log.Error("CreateEvent: ошибка публикации события", "error", err, "event_id", eventID)
-	}
-
-	s.log.Info("CreateEvent: поездка создана", "event_id", eventID, "user_id", userID)
-
-	return &models.EventWithDetails{
-		Event:        *event,
-		Participants: []models.Participant{*participant},
-		Waypoints:    waypoints,
-	}, nil
-}
-
 // JoinEvent запрос на участие в поездке (пользователь подаёт заявку)
 func (s *EventService) JoinEvent(ctx context.Context, eventID, userID uuid.UUID) error {
 	s.log.Debug("JoinEvent: начало", "event_id", eventID, "user_id", userID)
@@ -1072,6 +876,216 @@ func (s *EventService) IsEventParticipant(ctx context.Context, eventID, userID u
 	return s.participantRepo.IsParticipant(ctx, eventID, userID)
 }
 
+// CreateEvent создаёт новую поездку
+func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *models.CreateEventRequest) (*models.EventWithDetails, error) {
+	s.log.Debug("CreateEvent: начало", "user_id", userID, "route_id", req.RouteID, "title", req.Title, "start_date", req.StartDate)
+
+	// Проверяем дату начала
+	if req.StartDate.Before(time.Now()) {
+		s.log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
+		return nil, ErrInvalidStartDate
+	}
+
+	// Получаем маршрут из Route Service
+	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, req.RouteID.String())
+	if err != nil {
+		s.log.Error("CreateEvent: ошибка получения маршрута", "error", err, "route_id", req.RouteID)
+		return nil, fmt.Errorf("failed to get route: %w", err)
+	}
+
+	// Создаём ID события
+	eventID := uuid.New()
+	now := time.Now()
+
+	// Рассчитываем даты точек
+	waypoints := s.calculateWaypointDates(routeData.Waypoints, req.StartDate, eventID)
+
+	// Вычисляем дату окончания
+	endDate := req.StartDate
+	if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
+		endDate = *waypoints[len(waypoints)-1].PlannedEnd
+	}
+
+	// Определяем cover_url
+	coverURL := sql.NullString{String: req.CoverURL, Valid: req.CoverURL != ""}
+	if !coverURL.Valid && routeData.ImageURL != "" {
+		coverURL = sql.NullString{String: routeData.ImageURL, Valid: true}
+		s.log.Debug("CreateEvent: используем обложку маршрута", "cover_url", coverURL.String)
+	}
+
+	// Создаём событие
+	event := &models.Event{
+		ID:          eventID,
+		RouteID:     req.RouteID,
+		Title:       req.Title,
+		Description: req.Description,
+		CoverURL:    coverURL,
+		OwnerID:     userID,
+		StartDate:   req.StartDate,
+		EndDate:     endDate,
+		IsGroup:     req.IsGroup,
+		Status:      "planned",
+		IsPublic:    false,
+		CreatedAt:   now,
+	}
+
+	// Создаём событие и точки в одной транзакции
+	if err := s.eventRepo.CreateWithWaypoints(ctx, event, waypoints); err != nil {
+		s.log.Error("CreateEvent: ошибка создания события с точками", "error", err, "event_id", eventID)
+		return nil, err
+	}
+
+	// Добавляем владельца
+	approvedTrue := true
+	participant := &models.Participant{
+		InviteID:        uuid.New(),
+		EventID:         eventID,
+		UserID:          userID,
+		Role:            "owner",
+		ApprovedByOwner: true,
+		ApprovedByUser:  &approvedTrue,
+	}
+	if err := s.participantRepo.Add(ctx, participant); err != nil {
+		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
+	}
+
+	// Обрабатываем приглашения
+	participants := []uuid.UUID{userID}
+	if req.IsGroup && len(req.InvitedEmails) > 0 {
+		for _, email := range req.InvitedEmails {
+			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
+			if err != nil {
+				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
+				continue
+			}
+
+			var invite *models.Participant
+
+			if userInfo != nil {
+				invite = &models.Participant{
+					InviteID:        uuid.New(),
+					EventID:         eventID,
+					UserID:          userInfo.UserID,
+					Role:            "member",
+					ApprovedByOwner: true,
+					ApprovedByUser:  nil,
+					InvitedEmail:    "",
+				}
+				participants = append(participants, userInfo.UserID)
+				s.log.Trace("CreateEvent: пользователь найден, создаём приглашение", "event_id", eventID, "user_id", userInfo.UserID, "email", email)
+			} else {
+				invite = &models.Participant{
+					InviteID:        uuid.New(),
+					EventID:         eventID,
+					UserID:          uuid.Nil,
+					Role:            "member",
+					ApprovedByOwner: true,
+					ApprovedByUser:  nil,
+					InvitedEmail:    email,
+				}
+				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение", "event_id", eventID, "email", email)
+			}
+
+			if err := s.participantRepo.Add(ctx, invite); err != nil {
+				s.log.Error("CreateEvent: ошибка создания", "error", err, "email", email)
+			}
+		}
+	}
+
+	// Публикуем событие
+	if err := s.producer.PublishEventCreated(ctx, eventID, req.RouteID, userID, req.Title, req.StartDate, endDate, participants); err != nil {
+		s.log.Error("CreateEvent: ошибка публикации события", "error", err, "event_id", eventID)
+	}
+
+	s.log.Info("CreateEvent: поездка создана", "event_id", eventID, "user_id", userID)
+
+	return &models.EventWithDetails{
+		Event:        *event,
+		Participants: []models.Participant{*participant},
+		Waypoints:    waypoints,
+	}, nil
+}
+
+// UpdateEvent обновляет поездку
+func (s *EventService) UpdateEvent(ctx context.Context, eventID, userID uuid.UUID, req *models.UpdateEventRequest) (*models.Event, error) {
+	s.log.Debug("UpdateEvent: начало", "event_id", eventID, "user_id", userID)
+
+	// Проверяем права
+	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !isOwner {
+		return nil, ErrNotOwner
+	}
+
+	// Получаем событие
+	event, err := s.eventRepo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, ErrEventNotFound
+	}
+
+	// Обновляем поля
+	if req.Title != nil {
+		event.Title = *req.Title
+	}
+	if req.Description != nil {
+		event.Description = *req.Description
+	}
+	if req.CoverURL != nil {
+		event.CoverURL = sql.NullString{String: *req.CoverURL, Valid: *req.CoverURL != ""}
+	}
+	if req.IsPublic != nil {
+		event.IsPublic = *req.IsPublic
+	}
+
+	// Если меняется дата начала, нужно пересчитать точки
+	if req.StartDate != nil && !req.StartDate.Equal(event.StartDate) {
+		if req.StartDate.Before(time.Now()) {
+			return nil, ErrInvalidStartDate
+		}
+		event.StartDate = *req.StartDate
+
+		waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
+		if err != nil {
+			s.log.Error("UpdateEvent: ошибка получения точек для пересчёта", "error", err)
+		} else {
+			newWaypoints := s.recalculateWaypointDates(waypoints, event.StartDate)
+			for i, wp := range newWaypoints {
+				if err := s.waypointRepo.Update(ctx, &wp); err != nil {
+					s.log.Error("UpdateEvent: ошибка обновления точки", "error", err, "waypoint_id", wp.ID)
+				} else {
+					waypoints[i] = wp
+				}
+			}
+
+			if len(waypoints) > 0 && waypoints[len(waypoints)-1].PlannedEnd != nil {
+				event.EndDate = *waypoints[len(waypoints)-1].PlannedEnd
+			}
+		}
+	}
+
+	// Сохраняем изменения
+	if err := s.eventRepo.Update(ctx, event); err != nil {
+		return nil, err
+	}
+
+	// Публикуем событие
+	if err := s.producer.PublishEventUpdated(ctx, eventID, userID, event.Title, event.StartDate, event.EndDate, event.IsPublic); err != nil {
+		s.log.Error("UpdateEvent: ошибка публикации события", "error", err)
+	}
+
+	return event, nil
+}
+
+// GetInviteLinkTTL возвращает TTL для ссылок-приглашений
+func (s *EventService) GetInviteLinkTTL() time.Duration {
+	return s.cfg.InviteLinkTTL
+}
+
 // CreateInviteLink создаёт временную ссылку-приглашение
 func (s *EventService) CreateInviteLink(ctx context.Context, eventID, userID uuid.UUID, ttl time.Duration) (*eventdto.InviteLinkResponse, error) {
 	s.log.Debug("CreateInviteLink: начало", "event_id", eventID, "user_id", userID, "ttl", ttl)
@@ -1152,14 +1166,14 @@ func (s *EventService) GetEventByInviteLink(ctx context.Context, linkID string) 
 		participantsCount = 0
 	}
 
-	// Получаем точки маршрута (полностью)
+	// Получаем точки маршрута
 	waypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
 	if err != nil {
 		s.log.Error("GetEventByInviteLink: ошибка получения точек", "error", err)
 		return nil, err
 	}
 
-	// Формируем DTO для точек (полные данные)
+	// Формируем DTO для точек
 	waypointDTOs := make([]eventdto.WaypointPreviewResponse, 0, len(waypoints))
 	for _, wp := range waypoints {
 		waypointDTOs = append(waypointDTOs, eventdto.WaypointPreviewResponse{
@@ -1174,12 +1188,19 @@ func (s *EventService) GetEventByInviteLink(ctx context.Context, linkID string) 
 		})
 	}
 
+	// Получаем cover_url
+	coverURL := ""
+	if event.CoverURL.Valid {
+		coverURL = event.CoverURL.String
+	}
+
 	s.log.Debug("GetEventByInviteLink: поездка получена", "event_id", eventID, "link_id", linkID, "waypoints_count", len(waypointDTOs))
 
 	return &eventdto.EventPreviewResponse{
 		ID:                event.ID,
 		Title:             event.Title,
 		Description:       event.Description,
+		CoverURL:          coverURL,
 		StartDate:         event.StartDate,
 		EndDate:           event.EndDate,
 		IsGroup:           event.IsGroup,
@@ -1189,7 +1210,43 @@ func (s *EventService) GetEventByInviteLink(ctx context.Context, linkID string) 
 	}, nil
 }
 
-// GetInviteLinkTTL возвращает TTL для ссылок-приглашений
-func (s *EventService) GetInviteLinkTTL() time.Duration {
-	return s.cfg.InviteLinkTTL
+// UpdateEventCover обновляет только обложку поездки
+func (s *EventService) UpdateEventCover(ctx context.Context, eventID, userID uuid.UUID, coverURL string) (*models.Event, error) {
+	s.log.Debug("UpdateEventCover: начало", "event_id", eventID, "user_id", userID, "cover_url", coverURL)
+
+	// Проверяем права
+	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !isOwner {
+		return nil, ErrNotOwner
+	}
+
+	// Получаем событие
+	event, err := s.eventRepo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, ErrEventNotFound
+	}
+
+	// Обновляем обложку
+	event.CoverURL = sql.NullString{String: coverURL, Valid: coverURL != ""}
+	event.UpdatedAt = timePtr(time.Now())
+
+	// Сохраняем изменения
+	if err := s.eventRepo.Update(ctx, event); err != nil {
+		s.log.Error("UpdateEventCover: ошибка обновления", "error", err, "event_id", eventID)
+		return nil, err
+	}
+
+	s.log.Info("UpdateEventCover: обложка обновлена", "event_id", eventID, "user_id", userID)
+
+	return event, nil
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
 }

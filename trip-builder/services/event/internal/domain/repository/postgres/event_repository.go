@@ -34,14 +34,15 @@ func (r *EventRepository) table() string {
 
 func (r *EventRepository) Create(ctx context.Context, event *models.Event) error {
 	query := fmt.Sprintf(`
-		INSERT INTO %s (id, route_id, title, description, owner_id, start_date, end_date, 
+		INSERT INTO %s (id, route_id, title, description, cover_url, owner_id, start_date, end_date, 
 		                is_group, status, is_public, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`, r.table())
 
 	_, err := r.db.ExecContext(ctx, query,
-		event.ID, event.RouteID, event.Title, event.Description, event.OwnerID,
-		event.StartDate, event.EndDate, event.IsGroup, event.Status, event.IsPublic, event.CreatedAt,
+		event.ID, event.RouteID, event.Title, event.Description, event.CoverURL,
+		event.OwnerID, event.StartDate, event.EndDate, event.IsGroup,
+		event.Status, event.IsPublic, event.CreatedAt,
 	)
 	if err != nil {
 		r.log.Error("EventRepository.Create: ошибка создания", "error", err, "event_id", event.ID)
@@ -54,7 +55,7 @@ func (r *EventRepository) Create(ctx context.Context, event *models.Event) error
 
 func (r *EventRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Event, error) {
 	query := fmt.Sprintf(`
-		SELECT id, route_id, title, description, owner_id, start_date, end_date,
+		SELECT id, route_id, title, description, cover_url, owner_id, start_date, end_date,
 		       is_group, status, is_public, created_at, updated_at
 		FROM %s WHERE id = $1
 	`, r.table())
@@ -63,9 +64,9 @@ func (r *EventRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Ev
 	var updatedAt sql.NullTime
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&event.ID, &event.RouteID, &event.Title, &event.Description, &event.OwnerID,
-		&event.StartDate, &event.EndDate, &event.IsGroup, &event.Status, &event.IsPublic,
-		&event.CreatedAt, &updatedAt,
+		&event.ID, &event.RouteID, &event.Title, &event.Description, &event.CoverURL,
+		&event.OwnerID, &event.StartDate, &event.EndDate, &event.IsGroup, &event.Status,
+		&event.IsPublic, &event.CreatedAt, &updatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -100,9 +101,8 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 		argPos++
 	}
 
-	// Условие: участник полностью подтверждён (approved_by_owner = true AND approved_by_user = true)
 	query := fmt.Sprintf(`
-		SELECT e.id, e.route_id, e.title, e.description, e.owner_id, e.start_date, e.end_date,
+		SELECT e.id, e.route_id, e.title, e.description, e.cover_url, e.owner_id, e.start_date, e.end_date,
 		       e.is_group, e.status, e.is_public, e.created_at, e.updated_at
 		FROM %s e
 		JOIN %s p ON e.id = p.event_id
@@ -128,9 +128,9 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 		var updatedAt sql.NullTime
 
 		err := rows.Scan(
-			&event.ID, &event.RouteID, &event.Title, &event.Description, &event.OwnerID,
-			&event.StartDate, &event.EndDate, &event.IsGroup, &event.Status, &event.IsPublic,
-			&event.CreatedAt, &updatedAt,
+			&event.ID, &event.RouteID, &event.Title, &event.Description, &event.CoverURL,
+			&event.OwnerID, &event.StartDate, &event.EndDate, &event.IsGroup, &event.Status,
+			&event.IsPublic, &event.CreatedAt, &updatedAt,
 		)
 		if err != nil {
 			r.log.Error("EventRepository.ListByUserID: ошибка сканирования", "error", err)
@@ -170,10 +170,10 @@ func (r *EventRepository) ListByUserID(ctx context.Context, userID uuid.UUID, st
 
 func (r *EventRepository) ListPublic(ctx context.Context, limit, offset int) ([]models.Event, int64, error) {
 	query := fmt.Sprintf(`
-		SELECT id, route_id, title, description, owner_id, start_date, end_date,
+		SELECT id, route_id, title, description, cover_url, owner_id, start_date, end_date,
 		       is_group, status, is_public, created_at, updated_at
 		FROM %s
-		WHERE is_public = true AND status = 'completed'
+		WHERE is_public = true AND status != 'cancelled'
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
 	`, r.table())
@@ -191,9 +191,9 @@ func (r *EventRepository) ListPublic(ctx context.Context, limit, offset int) ([]
 		var updatedAt sql.NullTime
 
 		err := rows.Scan(
-			&event.ID, &event.RouteID, &event.Title, &event.Description, &event.OwnerID,
-			&event.StartDate, &event.EndDate, &event.IsGroup, &event.Status, &event.IsPublic,
-			&event.CreatedAt, &updatedAt,
+			&event.ID, &event.RouteID, &event.Title, &event.Description, &event.CoverURL,
+			&event.OwnerID, &event.StartDate, &event.EndDate, &event.IsGroup, &event.Status,
+			&event.IsPublic, &event.CreatedAt, &updatedAt,
 		)
 		if err != nil {
 			r.log.Error("EventRepository.ListPublic: ошибка сканирования", "error", err)
@@ -206,7 +206,8 @@ func (r *EventRepository) ListPublic(ctx context.Context, limit, offset int) ([]
 		events = append(events, event)
 	}
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE is_public = true AND status = 'completed'", r.table())
+	// Считаем общее количество (тоже без cancelled)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE is_public = true AND status != 'cancelled'", r.table())
 	var total int64
 	err = r.db.QueryRowContext(ctx, countQuery).Scan(&total)
 	if err != nil {
@@ -222,16 +223,17 @@ func (r *EventRepository) Update(ctx context.Context, event *models.Event) error
 		UPDATE %s SET
 			title = $1,
 			description = $2,
-			start_date = $3,
-			end_date = $4,
-			is_public = $5,
+			cover_url = $3,
+			start_date = $4,
+			end_date = $5,
+			is_public = $6,
 			updated_at = NOW()
-		WHERE id = $6
+		WHERE id = $7
 	`, r.table())
 
 	_, err := r.db.ExecContext(ctx, query,
-		event.Title, event.Description, event.StartDate, event.EndDate,
-		event.IsPublic, event.ID,
+		event.Title, event.Description, event.CoverURL,
+		event.StartDate, event.EndDate, event.IsPublic, event.ID,
 	)
 	if err != nil {
 		r.log.Error("EventRepository.Update: ошибка обновления", "error", err, "event_id", event.ID)
@@ -351,14 +353,15 @@ func (r *EventRepository) CreateWithWaypoints(ctx context.Context, event *models
 
 	// Вставляем событие
 	eventQuery := fmt.Sprintf(`
-        INSERT INTO %s (id, route_id, title, description, owner_id, start_date, end_date, 
+        INSERT INTO %s (id, route_id, title, description, cover_url, owner_id, start_date, end_date, 
                         is_group, status, is_public, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     `, r.table())
 
 	_, err = tx.ExecContext(ctx, eventQuery,
-		event.ID, event.RouteID, event.Title, event.Description, event.OwnerID,
-		event.StartDate, event.EndDate, event.IsGroup, event.Status, event.IsPublic, event.CreatedAt,
+		event.ID, event.RouteID, event.Title, event.Description, event.CoverURL,
+		event.OwnerID, event.StartDate, event.EndDate, event.IsGroup,
+		event.Status, event.IsPublic, event.CreatedAt,
 	)
 	if err != nil {
 		r.log.Error("EventRepository.CreateWithWaypoints: ошибка вставки события", "error", err, "event_id", event.ID)

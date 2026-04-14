@@ -456,9 +456,15 @@ func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sor
 	// Обогащаем информацией о лайках для текущего пользователя
 	result := make([]models.RouteWithLike, len(routes))
 	for i, route := range routes {
+		s.log.Debug("Like enrichment Public Routes started")
 		isLiked := false
 		if currentUserID != nil {
 			isLiked, err = s.likeRepo.IsLiked(ctx, *currentUserID, route.ID)
+			s.log.Debug("Like enrichment Public Routes:",
+				"route.ID", route.ID,
+				"user_id", *currentUserID,
+				"isLiked", isLiked,
+			)
 			if err != nil {
 				s.log.Error("Ошибка проверки лайка", "error", err, "route_id", route.ID)
 				isLiked = false // не фатально
@@ -475,7 +481,7 @@ func (s *RouteService) ListPublicRoutes(ctx context.Context, page, size int, sor
 }
 
 // ListUserRoutes возвращает маршруты пользователя
-func (s *RouteService) ListUserRoutes(ctx context.Context, userID uuid.UUID, page, size int) ([]models.Route, int64, error) {
+func (s *RouteService) ListUserRoutes(ctx context.Context, userID uuid.UUID, page, size int) ([]models.RouteWithLike, int64, error) {
 	s.log.Debug("ListUserRoutes", "user_id", userID, "page", page, "size", size)
 
 	offset := (page - 1) * size
@@ -485,7 +491,30 @@ func (s *RouteService) ListUserRoutes(ctx context.Context, userID uuid.UUID, pag
 		return nil, 0, err
 	}
 
-	return routes, total, nil
+	// Обогащаем информацией о лайках для текущего пользователя
+	result := make([]models.RouteWithLike, len(routes))
+	for i, route := range routes {
+		s.log.Debug("Like enrichment MyRoutes started")
+		isLiked := false
+
+		isLiked, err = s.likeRepo.IsLiked(ctx, userID, route.ID)
+		s.log.Debug("Like enrichment MyRoutes:",
+			"route.ID", route.ID,
+			"user_id", userID,
+			"isLiked", isLiked,
+		)
+		if err != nil {
+			s.log.Error("Ошибка проверки лайка", "error", err, "route_id", route.ID)
+			isLiked = false // не фатально
+		}
+
+		result[i] = models.RouteWithLike{
+			Route:   route,
+			IsLiked: isLiked,
+		}
+	}
+
+	return result, total, nil
 }
 
 // GetAllTags возвращает все теги с пагинацией
