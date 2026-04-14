@@ -8,11 +8,11 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/client/media"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
-	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
-	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
-	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/models"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/service"
+	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
+	userdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/user"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -57,16 +57,16 @@ func (h *ProfileHandler) writeJSON(w http.ResponseWriter, status int, data inter
 // profileToResponse преобразует модель профиля в DTO ответа
 func profileToResponse(p *models.Profile) *userdto.ProfileResponse {
 	resp := &userdto.ProfileResponse{
-		UserID:    p.UserID,
-		FirstName: p.FirstName,
-		LastName:  p.LastName,
-		AvatarURL: p.AvatarURL,
-		Bio:       p.Bio,
-		Language:  p.Language,
-		Timezone:  p.Timezone,
+		UserID:               p.UserID,
+		FirstName:            p.FirstName,
+		LastName:             p.LastName,
+		AvatarURL:            p.AvatarURL,
+		Bio:                  p.Bio,
+		Language:             p.Language,
+		Timezone:             p.Timezone,
 		NotificationsEnabled: p.NotificationsEnabled,
-		CreatedAt: p.CreatedAt,
-		UpdatedAt: p.UpdatedAt,
+		CreatedAt:            p.CreatedAt,
+		UpdatedAt:            p.UpdatedAt,
 	}
 	return resp
 }
@@ -257,15 +257,23 @@ func (h *ProfileHandler) GetUserEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, err := h.eventClient.GetUserEvents(r.Context(), userID.String())
+	allEvents, err := h.eventClient.GetUserEvents(r.Context(), userID.String())
 	if err != nil {
 		h.log.Error("Ошибка получения событий", "error", err, "user_id", userID)
-		// возвращаем пустой список, фолбэк уже отработал
+		allEvents = []event.Event{}
+	}
+
+	// Фильтруем: оставляем только публичные события
+	publicEvents := make([]event.Event, 0)
+	for _, e := range allEvents {
+		if e.IsPublic {
+			publicEvents = append(publicEvents, e)
+		}
 	}
 
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user_id": userID,
-		"events":  events,
-		"total":   len(events),
+		"events":  publicEvents,
+		"total":   len(publicEvents),
 	})
 }

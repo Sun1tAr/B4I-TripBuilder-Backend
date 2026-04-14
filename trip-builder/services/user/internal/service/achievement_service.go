@@ -59,16 +59,16 @@ func (s *AchievementService) CheckAndAward(ctx context.Context, userID uuid.UUID
 	case "routes_created":
 		achievementsToCheck = []func() (string, string, bool){
 			func() (string, string, bool) {
-				return "first_route", "Первое путешествие", stats.RoutesCreated >= 1
+				return "first_route", "Первый маршрут", stats.RoutesCreated >= 1
 			},
 			func() (string, string, bool) { return "ten_routes", "10 маршрутов", stats.RoutesCreated >= 10 },
 		}
 	case "events_done":
 		achievementsToCheck = []func() (string, string, bool){
 			func() (string, string, bool) {
-				return "first_event", "Первое событие", stats.EventsDone >= 1
+				return "first_event", "Первая поездка", stats.EventsDone >= 1
 			},
-			func() (string, string, bool) { return "ten_events", "10 событий", stats.EventsDone >= 10 },
+			func() (string, string, bool) { return "ten_events", "10 поездок", stats.EventsDone >= 10 },
 		}
 	case "countries_visited":
 		achievementsToCheck = []func() (string, string, bool){

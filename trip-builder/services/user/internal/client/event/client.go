@@ -9,14 +9,23 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/retry"
+	"github.com/google/uuid"
 )
 
 type Event struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	StartDate time.Time `json:"startDate"`
-	EndDate   time.Time `json:"endDate"`
-	Status    string    `json:"status"`
+	ID                uuid.UUID  `json:"id"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description,omitempty"`
+	CoverURL          string     `json:"cover_url,omitempty"`
+	OwnerID           uuid.UUID  `json:"owner_id"`
+	StartDate         time.Time  `json:"start_date"`
+	EndDate           time.Time  `json:"end_date"`
+	IsGroup           bool       `json:"is_group"`
+	Status            string     `json:"status"`
+	IsPublic          bool       `json:"is_public"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	TotalParticipants int        `json:"total_participants"`
 }
 
 type Client struct {
@@ -54,6 +63,7 @@ func (c *Client) GetUserEvents(ctx context.Context, userID string) ([]Event, err
 
 	// Пробуем синхронно
 	resp, err := c.httpClient.Do(req)
+	c.log.Debug("EventClient.GetUserEvents: вернулся ответ", "response", resp.Body)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		defer resp.Body.Close()
 
@@ -67,27 +77,7 @@ func (c *Client) GetUserEvents(ctx context.Context, userID string) ([]Event, err
 		}
 	}
 
-	// Если не получилось, логируем и отправляем в retry
-	c.log.Warn("Синхронный вызов Event Service не удался, отправляем в retry",
-		"user_id", userID,
-		"error", err,
-	)
+	c.log.Error("EventClient.GetUserEvents: неуспешно")
 
-	// Сохраняем запрос в retry очередь
-	failedReq := retry.FailedRequest{
-		Method:      "GET",
-		URL:         url,
-		Headers:     map[string]string{"X-User-ID": userID},
-		Body:        nil,
-		Attempts:    0,
-		LastError:   err.Error(),
-		LastAttempt: time.Now(),
-	}
-
-	if err := c.asyncHTTP.Enqueue(ctx, failedReq); err != nil {
-		c.log.Error("Не удалось отправить запрос в retry queue", "error", err)
-	}
-
-	// Возвращаем пустой список как fallback
 	return []Event{}, nil
 }
