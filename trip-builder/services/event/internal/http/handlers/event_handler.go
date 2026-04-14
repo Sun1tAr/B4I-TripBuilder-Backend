@@ -12,9 +12,8 @@ import (
 	commondto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/common"
 	eventdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
-
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 )
 
 type EventHandler struct {
@@ -343,8 +342,7 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 // GetEventByID возвращает детальную информацию о поездке
 func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -431,8 +429,7 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 // UpdateEvent обновляет поездку
 func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -513,8 +510,7 @@ func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 // DeleteEvent отменяет поездку
 func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -549,8 +545,7 @@ func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 // JoinEvent запрос на участие в поездке (пользователь подаёт заявку)
 func (h *EventHandler) JoinEvent(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -585,8 +580,7 @@ func (h *EventHandler) JoinEvent(w http.ResponseWriter, r *http.Request) {
 // LeaveEvent выход из поездки
 func (h *EventHandler) LeaveEvent(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -623,9 +617,8 @@ func (h *EventHandler) LeaveEvent(w http.ResponseWriter, r *http.Request) {
 // AcceptParticipant принимает участника (владелец утверждает заявку)
 func (h *EventHandler) AcceptParticipant(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
-	participantIDStr := vars["userId"]
+	eventIDStr := chi.URLParam(r, "id")
+	participantIDStr := chi.URLParam(r, "userId")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -667,9 +660,8 @@ func (h *EventHandler) AcceptParticipant(w http.ResponseWriter, r *http.Request)
 // DeclineParticipant отклоняет участника (владелец отклоняет заявку)
 func (h *EventHandler) DeclineParticipant(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
-	participantIDStr := vars["userId"]
+	eventIDStr := chi.URLParam(r, "id")
+	participantIDStr := chi.URLParam(r, "userId")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -711,8 +703,7 @@ func (h *EventHandler) DeclineParticipant(w http.ResponseWriter, r *http.Request
 // GetParticipants возвращает список участников
 func (h *EventHandler) GetParticipants(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -791,8 +782,7 @@ func (h *EventHandler) GetInvites(w http.ResponseWriter, r *http.Request) {
 // AcceptInvite принимает приглашение по invite_id
 func (h *EventHandler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	inviteIDStr := vars["invite_id"]
+	inviteIDStr := chi.URLParam(r, "invite_id")
 
 	inviteID, err := uuid.Parse(inviteIDStr)
 	if err != nil {
@@ -831,8 +821,7 @@ func (h *EventHandler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 // DeclineInvite отклоняет приглашение по invite_id
 func (h *EventHandler) DeclineInvite(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	inviteIDStr := vars["invite_id"]
+	inviteIDStr := chi.URLParam(r, "invite_id")
 
 	inviteID, err := uuid.Parse(inviteIDStr)
 	if err != nil {
@@ -871,8 +860,7 @@ func (h *EventHandler) DeclineInvite(w http.ResponseWriter, r *http.Request) {
 // InviteParticipants владелец приглашает новых участников
 func (h *EventHandler) InviteParticipants(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -918,8 +906,7 @@ func (h *EventHandler) InviteParticipants(w http.ResponseWriter, r *http.Request
 // GetWaypoints возвращает точки маршрута
 func (h *EventHandler) GetWaypoints(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -958,9 +945,8 @@ func (h *EventHandler) GetWaypoints(w http.ResponseWriter, r *http.Request) {
 // VisitWaypoint отмечает точку посещённой
 func (h *EventHandler) VisitWaypoint(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
-	waypointIDStr := vars["waypointId"]
+	eventIDStr := chi.URLParam(r, "id")
+	waypointIDStr := chi.URLParam(r, "waypointId")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -1016,9 +1002,8 @@ func (h *EventHandler) VisitWaypoint(w http.ResponseWriter, r *http.Request) {
 // AddMedia добавляет медиа к точке
 func (h *EventHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
-	waypointIDStr := vars["waypointId"]
+	eventIDStr := chi.URLParam(r, "id")
+	waypointIDStr := chi.URLParam(r, "waypointId")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -1086,8 +1071,7 @@ func (h *EventHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 // GetMedia возвращает медиа точки
 func (h *EventHandler) GetMedia(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	waypointIDStr := vars["waypointId"]
+	waypointIDStr := chi.URLParam(r, "waypointId")
 
 	waypointID, err := uuid.Parse(waypointIDStr)
 	if err != nil {
@@ -1150,8 +1134,7 @@ func (h *EventHandler) GetMedia(w http.ResponseWriter, r *http.Request) {
 // DeleteMedia удаляет медиа
 func (h *EventHandler) DeleteMedia(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	mediaIDStr := vars["mediaId"]
+	mediaIDStr := chi.URLParam(r, "mediaId")
 
 	mediaID, err := uuid.Parse(mediaIDStr)
 	if err != nil {
@@ -1179,9 +1162,8 @@ func (h *EventHandler) DeleteMedia(w http.ResponseWriter, r *http.Request) {
 // AddComment добавляет комментарий
 func (h *EventHandler) AddComment(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
-	waypointIDStr := vars["waypointId"]
+	eventIDStr := chi.URLParam(r, "id")
+	waypointIDStr := chi.URLParam(r, "waypointId")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
@@ -1238,8 +1220,7 @@ func (h *EventHandler) AddComment(w http.ResponseWriter, r *http.Request) {
 // UpdateComment обновляет комментарий
 func (h *EventHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	commentIDStr := vars["commentId"]
+	commentIDStr := chi.URLParam(r, "commentId")
 
 	commentID, err := uuid.Parse(commentIDStr)
 	if err != nil {
@@ -1274,8 +1255,7 @@ func (h *EventHandler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 // DeleteComment удаляет комментарий
 func (h *EventHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	commentIDStr := vars["commentId"]
+	commentIDStr := chi.URLParam(r, "commentId")
 
 	commentID, err := uuid.Parse(commentIDStr)
 	if err != nil {
@@ -1303,8 +1283,7 @@ func (h *EventHandler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 // CheckOwner проверяет, является ли пользователь владельцем события
 func (h *EventHandler) CheckOwner(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 	userIDStr := r.URL.Query().Get("user_id")
 
 	eventID, err := uuid.Parse(eventIDStr)
@@ -1334,8 +1313,7 @@ func (h *EventHandler) CheckOwner(w http.ResponseWriter, r *http.Request) {
 // CheckParticipant проверяет, является ли пользователь активным участником события
 func (h *EventHandler) CheckParticipant(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 	userIDStr := r.URL.Query().Get("user_id")
 
 	eventID, err := uuid.Parse(eventIDStr)
@@ -1411,8 +1389,7 @@ func (h *EventHandler) CreateInviteLink(w http.ResponseWriter, r *http.Request) 
 // GetEventByInviteLink получает информацию о поездке по ссылке-приглашению
 func (h *EventHandler) GetEventByInviteLink(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	linkID := vars["link_id"]
+	linkID := chi.URLParam(r, "link_id")
 
 	if linkID == "" {
 		h.writeError(w, http.StatusBadRequest, "link_id is required", "")
@@ -1442,8 +1419,7 @@ func (h *EventHandler) GetEventByInviteLink(w http.ResponseWriter, r *http.Reque
 // UpdateEventCover обновляет обложку поездки
 func (h *EventHandler) UpdateEventCover(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
-	vars := mux.Vars(r)
-	eventIDStr := vars["id"]
+	eventIDStr := chi.URLParam(r, "id")
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
