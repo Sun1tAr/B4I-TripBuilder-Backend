@@ -15,20 +15,26 @@ var (
 )
 
 type FollowService struct {
-	followRepo  repository.FollowRepository
-	profileRepo repository.ProfileRepository
-	log         *logger.Logger
+	followRepo     repository.FollowRepository
+	profileRepo    repository.ProfileRepository
+	statsService   StatsService
+	achievementSvc AchievementService
+	log            *logger.Logger
 }
 
 func NewFollowService(
 	followRepo repository.FollowRepository,
 	profileRepo repository.ProfileRepository,
+	statsService *StatsService,
+	achievementSvc *AchievementService,
 	log *logger.Logger,
 ) *FollowService {
 	return &FollowService{
-		followRepo:  followRepo,
-		profileRepo: profileRepo,
-		log:         log,
+		followRepo:     followRepo,
+		profileRepo:    profileRepo,
+		statsService:   *statsService,
+		achievementSvc: *achievementSvc,
+		log:            log,
 	}
 }
 
@@ -56,9 +62,14 @@ func (s *FollowService) Follow(ctx context.Context, followerID, followeeID uuid.
 		return err
 	}
 
-	// Обновляем счётчики (в транзакции или через события)
-	// Пока просто инкрементим
-	_, _ = s.followRepo.CountFollowers(ctx, followeeID) // для проверки
+	// Увеличиваем followers у того, на кого подписались
+	if err := s.statsService.IncrementFollowers(ctx, followeeID); err != nil {
+		s.log.Error("Ошибка обновления followers", "error", err, "user_id", followeeID)
+	}
+
+	// Проверяем достижения для обоих пользователей
+	go s.achievementSvc.CheckAndAward(context.Background(), followerID, "following", 0)
+	go s.achievementSvc.CheckAndAward(context.Background(), followeeID, "followers", 0)
 
 	s.log.Info("Пользователь подписался",
 		"follower_id", followerID, "followee_id", followeeID)
@@ -77,6 +88,15 @@ func (s *FollowService) Unfollow(ctx context.Context, followerID, followeeID uui
 
 	if err := s.followRepo.Unfollow(ctx, followerID, followeeID); err != nil {
 		return err
+	}
+
+	// Обновляем статистику
+	if err := s.statsService.DecrementFollowing(ctx, followerID); err != nil {
+		s.log.Error("Ошибка обновления following", "error", err, "user_id", followerID)
+	}
+
+	if err := s.statsService.DecrementFollowers(ctx, followeeID); err != nil {
+		s.log.Error("Ошибка обновления followers", "error", err, "user_id", followeeID)
 	}
 
 	s.log.Info("Пользователь отписался",

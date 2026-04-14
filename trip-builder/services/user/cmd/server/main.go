@@ -89,7 +89,7 @@ func main() {
 	achievementService := service.NewAchievementService(achievementRepo, statsRepo, userProducer, log)
 	statsService := service.NewStatsService(statsRepo, achievementService, log)
 	profileService := service.NewProfileService(profileRepo, statsRepo, achievementRepo, userProducer, log) // передаём userProducer
-	followService := service.NewFollowService(followRepo, profileRepo, log)
+	followService := service.NewFollowService(followRepo, profileRepo, statsService, achievementService, log)
 
 	// Инициализация хендлеров с передачей клиентов
 	profileHandler := handlers.NewProfileHandler(profileService, mediaClient, eventClient, log)

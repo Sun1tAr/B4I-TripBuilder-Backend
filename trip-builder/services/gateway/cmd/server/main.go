@@ -112,6 +112,8 @@ func main() {
 			r.Post("/users/me/avatar", handlers.Proxy(cfg, "user"))
 			r.Post("/users/{id}/follow", handlers.Proxy(cfg, "user"))
 			r.Delete("/users/{id}/follow", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}/followers", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}/following", handlers.Proxy(cfg, "user"))
 
 			// Routes
 			r.Post("/routes", handlers.Proxy(cfg, "route"))
