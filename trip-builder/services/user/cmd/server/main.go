@@ -178,11 +178,11 @@ func main() {
 	protected.HandleFunc("/me/avatar", profileHandler.UploadAvatar).Methods("POST")
 	protected.HandleFunc("/{id}/follow", followHandler.Follow).Methods("POST")
 	protected.HandleFunc("/{id}/follow", followHandler.Unfollow).Methods("DELETE")
-	protected.HandleFunc("/{id}/followers", followHandler.GetFollowers).Methods("GET")
-	protected.HandleFunc("/{id}/following", followHandler.GetFollowing).Methods("GET")
 
 	// ========== ПУБЛИЧНЫЕ МАРШРУТЫ (без авторизации) ==========
 	public := api.PathPrefix("").Subrouter()
+	public.HandleFunc("/{id}/followers", followHandler.GetFollowers).Methods("GET")
+	public.HandleFunc("/{id}/following", followHandler.GetFollowing).Methods("GET")
 	public.HandleFunc("/{id}/stats", statsHandler.GetUserStats).Methods("GET")
 	public.HandleFunc("/{id}/achievements", achievementHandler.GetUserAchievements).Methods("GET")
 	public.HandleFunc("/{id}/events", profileHandler.GetUserEvents).Methods("GET")
