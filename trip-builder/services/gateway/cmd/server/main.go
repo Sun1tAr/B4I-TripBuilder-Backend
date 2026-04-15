@@ -72,6 +72,8 @@ func main() {
 			r.Get("/users/{id}/stats", handlers.Proxy(cfg, "user"))
 			r.Get("/users/{id}/achievements", handlers.Proxy(cfg, "user"))
 			r.Get("/users/{id}/events", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}/followers", handlers.Proxy(cfg, "user"))
+			r.Get("/users/{id}/following", handlers.Proxy(cfg, "user"))
 			r.Get("/users/{id}", handlers.Proxy(cfg, "user"))
 
 			// Media (публичные файлы)
@@ -112,8 +114,6 @@ func main() {
 			r.Post("/users/me/avatar", handlers.Proxy(cfg, "user"))
 			r.Post("/users/{id}/follow", handlers.Proxy(cfg, "user"))
 			r.Delete("/users/{id}/follow", handlers.Proxy(cfg, "user"))
-			r.Get("/users/{id}/followers", handlers.Proxy(cfg, "user"))
-			r.Get("/users/{id}/following", handlers.Proxy(cfg, "user"))
 
 			// Routes
 			r.Post("/routes", handlers.Proxy(cfg, "route"))
