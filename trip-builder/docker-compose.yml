@@ -1,6 +1,20 @@
 version: '3.8'
 
 services:
+
+  docker-logger:
+    image: umputun/docker-logger:latest
+    container_name: docker-logger
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-logs:/srv/logs
+    environment:
+      - LOG_FILES=true
+      - MAX_SIZE=50
+      - MAX_FILES=5
+      - TIME_ZONE=Europe/Moscow
+    restart: unless-stopped
+
   postgres:
     image: postgres:15-alpine
     container_name: ${POSTGRES_CONTAINER_NAME:-trip-builder-backend-postgres}
@@ -26,8 +40,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ${REDIS_CONTAINER_NAME:-trip-builder-backend-redis}
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     networks:
       - trip-builder-network
     healthcheck:
@@ -43,8 +55,6 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_PORT:-2181}
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "${ZOOKEEPER_PORT:-2181}:2181"
     networks:
       - trip-builder-network
     restart: unless-stopped
@@ -54,8 +64,6 @@ services:
     container_name: ${KAFKA_CONTAINER_NAME:-trip-builder-backend-kafka}
     depends_on:
       - zookeeper
-    ports:
-      - "${KAFKA_PORT:-9092}:9092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_PORT:-2181}
@@ -75,8 +83,6 @@ services:
     container_name: ${AUTH_CONTAINER_NAME:-trip-builder-backend-auth}
     env_file:
       - services/auth/.env
-    ports:
-      - "${AUTH_PORT:-8081}:8081"
     networks:
       - trip-builder-network
     depends_on:
@@ -94,8 +100,6 @@ services:
     container_name: ${USER_CONTAINER_NAME:-trip-builder-backend-user}
     env_file:
       - services/user/.env
-    ports:
-      - "${USER_PORT:-8082}:8082"
     networks:
       - trip-builder-network
     depends_on:
@@ -129,8 +133,6 @@ services:
     container_name: ${ROUTE_CONTAINER_NAME:-trip-builder-backend-route}
     env_file:
       - services/route/.env
-    ports:
-      - "${ROUTE_PORT:-8083}:8083"
     networks:
       - trip-builder-network
     depends_on:
@@ -146,8 +148,6 @@ services:
     container_name: ${EVENT_CONTAINER_NAME:-trip-builder-backend-event}
     env_file:
       - services/event/.env
-    ports:
-      - "${EVENT_PORT:-8084}:8084"
     networks:
       - trip-builder-network
     depends_on:
@@ -163,8 +163,6 @@ services:
     container_name: ${TASK_CONTAINER_NAME:-trip-builder-backend-task}
     env_file:
       - services/task/.env
-    ports:
-      - "${TASK_PORT:-8085}:8085"
     networks:
       - trip-builder-network
     depends_on:
@@ -180,9 +178,6 @@ services:
     container_name: ${CHAT_CONTAINER_NAME:-trip-builder-backend-chat}
     env_file:
       - services/chat/.env
-    ports:
-      - "${CHAT_PORT:-8086}:8086"
-      - "${CHAT_WS_PORT:-8088}:8088"
     networks:
       - trip-builder-network
     depends_on:
@@ -198,8 +193,6 @@ services:
     container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media}
     env_file:
       - services/media/.env
-    ports:
-      - "${MEDIA_PORT:-8087}:8087"
     networks:
       - trip-builder-network
     depends_on:
@@ -210,9 +203,6 @@ services:
   minio:
     image: minio/minio:latest
     container_name: ${MINIO_CONTAINER_NAME:-trip-builder-backend-minio}
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
