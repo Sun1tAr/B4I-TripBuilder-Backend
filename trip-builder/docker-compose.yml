@@ -75,19 +75,29 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_PORT:-2181}
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${KAFKA_CONTAINER_NAME:-trip-builder-backend-kafka}:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-#      KAFKA_HEAP_OPTS: "-Xmx256m -Xms128m"
+
+      # Память
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:+DisableExplicitGC"
+
+      # Логи (WARN)
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=WARN,state.change.logger=WARN,kafka.log.LogManager=WARN,kafka=WARN"
+
+      # Топики и партиции
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 5
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+      # Ретеншн
+      KAFKA_OFFSETS_RETENTION_MINUTES: 60
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_SEGMENT_MS: 86400000
     networks:
       - trip-builder-network
     restart: unless-stopped
-#    deploy:
-#      resources:
-#        limits:
-#          memory: 512M
-#        reservations:
-#          memory: 256M
 
   auth:
     build:
