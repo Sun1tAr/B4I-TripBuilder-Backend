@@ -48,12 +48,65 @@ type Config struct {
 	// Таймауты HTTP клиента
 	HTTPClientTimeout time.Duration `envconfig:"HTTP_CLIENT_TIMEOUT" default:"10s"`
 
-	// Фронтенд URL для ссылок в письмах
-	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:3000"`
+	// ========== URL для ссылок в письмах ==========
+	// Базовый URL фронтенда (используется по умолчанию если конкретный URL не задан)
+	BaseURL string `envconfig:"BASE_URL" default:"http://localhost:3000"`
+
+	// Конкретные URL для разных типов ссылок
+	VerifyEmailURL string `envconfig:"VERIFY_EMAIL_URL" default:""` // /verify-email?token=
+	EventInviteURL string `envconfig:"EVENT_INVITE_URL" default:""` // /events/invite/
+	TaskURL        string `envconfig:"TASK_URL" default:""`         // /events/{eventId}/tasks/
+	ChatURL        string `envconfig:"CHAT_URL" default:""`         // /events/{eventId}/chat
+	EventURL       string `envconfig:"EVENT_URL" default:""`        // /events/
 
 	// Cleanup настройки
 	NotificationRetentionDays int           `envconfig:"NOTIFICATION_RETENTION_DAYS" default:"90"`
 	CleanupInterval           time.Duration `envconfig:"CLEANUP_INTERVAL" default:"24h"`
+}
+
+// GetVerifyEmailURL возвращает URL для подтверждения email
+// Плейсхолдер: %s = token
+func (c *Config) GetVerifyEmailURL(token string) string {
+	if c.VerifyEmailURL == "" {
+		return fmt.Sprintf("%s/verify-email?token=%s", c.BaseURL, token)
+	}
+	return fmt.Sprintf(c.VerifyEmailURL, token)
+}
+
+// GetEventInviteURL возвращает URL для приглашения в поездку
+// Плейсхолдер: %s = eventID
+func (c *Config) GetEventInviteURL(eventID string) string {
+	if c.EventInviteURL == "" {
+		return fmt.Sprintf("%s/events/invite/%s", c.BaseURL, eventID)
+	}
+	return fmt.Sprintf(c.EventInviteURL, eventID)
+}
+
+// GetTaskURL возвращает URL для задачи
+// Плейсхолдеры: %s = eventID, %s = taskID (в порядке eventID)
+func (c *Config) GetTaskURL(eventID, taskID string) string {
+	if c.TaskURL == "" {
+		return fmt.Sprintf("%s/events/%s", c.BaseURL, eventID)
+	}
+	return fmt.Sprintf(c.TaskURL, eventID)
+}
+
+// GetChatURL возвращает URL для чата
+// Плейсхолдер: %s = eventID
+func (c *Config) GetChatURL(eventID string) string {
+	if c.ChatURL == "" {
+		return fmt.Sprintf("%s/events/%s/chat", c.BaseURL, eventID)
+	}
+	return fmt.Sprintf(c.ChatURL, eventID)
+}
+
+// GetEventURL возвращает URL для поездки
+// Плейсхолдер: %s = eventID
+func (c *Config) GetEventURL(eventID string) string {
+	if c.EventURL == "" {
+		return fmt.Sprintf("%s/events/%s", c.BaseURL, eventID)
+	}
+	return fmt.Sprintf(c.EventURL, eventID)
 }
 
 func (c *Config) GetLogLevel() slog.Level {

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/notification/internal/config"
@@ -321,6 +320,72 @@ func (s *NotificationService) SendWelcomeEmail(ctx context.Context, userID uuid.
 	)
 }
 
+// truncateString обрезает строку до указанной длины
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// SendVerificationEmail отправляет письмо с подтверждением email
+func (s *NotificationService) SendVerificationEmail(ctx context.Context, userID uuid.UUID, emailAddress, firstName, lastName, verificationToken string) {
+	s.log.Debug("NotificationService.SendVerificationEmail: начало",
+		"user_id", userID,
+		"email", emailAddress,
+		"verification_token", verificationToken,
+		"token_length", len(verificationToken),
+	)
+
+	// Проверяем, что токен не пустой
+	if verificationToken == "" {
+		s.log.Error("NotificationService.SendVerificationEmail: токен пустой!", "user_id", userID)
+		return
+	}
+
+	// Проверяем rate limit
+	allowed, err := s.emailRateLimiter.Allow(ctx, userID.String())
+	if err != nil {
+		s.log.Error("NotificationService.SendVerificationEmail: ошибка проверки rate limit",
+			"error", err, "user_id", userID)
+		return
+	}
+	if !allowed {
+		s.log.Info("NotificationService.SendVerificationEmail: превышен лимит", "user_id", userID)
+		return
+	}
+
+	// Формируем ссылку подтверждения через конфиг
+	verificationLink := s.cfg.GetVerifyEmailURL(verificationToken)
+
+	s.log.Debug("NotificationService.SendVerificationEmail: ссылка сформирована",
+		"verification_link", verificationLink,
+	)
+
+	// Рендерим шаблон
+	data := &email.RenderData{
+		FirstName:        firstName,
+		LastName:         lastName,
+		Email:            emailAddress,
+		VerificationLink: verificationLink,
+	}
+
+	subject, body, err := s.templateEngine.Render(ctx, "user.verification", "ru", data)
+	if err != nil {
+		s.log.Error("NotificationService.SendVerificationEmail: ошибка рендеринга",
+			"error", err, "user_id", userID)
+		return
+	}
+
+	// Отправляем письмо асинхронно
+	s.emailSender.SendAsync(ctx, emailAddress, subject, body)
+
+	s.log.Info("NotificationService.SendVerificationEmail: письмо отправлено в очередь",
+		"user_id", userID,
+		"email", emailAddress,
+	)
+}
+
 // SendEventInviteEmail отправляет письмо с приглашением в поездку
 func (s *NotificationService) SendEventInviteEmail(ctx context.Context, userID uuid.UUID, emailAddress, firstName string, eventTitle, routeTitle, inviterName, startDate string, eventID uuid.UUID) {
 	s.log.Debug("NotificationService.SendEventInviteEmail: начало",
@@ -336,7 +401,8 @@ func (s *NotificationService) SendEventInviteEmail(ctx context.Context, userID u
 		return
 	}
 
-	inviteLink := fmt.Sprintf("%s/events/invite/%s", s.cfg.FrontendURL, eventID.String())
+	// Формируем ссылку приглашения через конфиг
+	inviteLink := s.cfg.GetEventInviteURL(eventID.String())
 
 	data := &email.RenderData{
 		FirstName:      firstName,
@@ -373,7 +439,8 @@ func (s *NotificationService) SendTaskAssignedEmail(ctx context.Context, userID 
 		return
 	}
 
-	taskLink := fmt.Sprintf("%s/events/%s/tasks/%s", s.cfg.FrontendURL, eventID.String(), taskID.String())
+	// Формируем ссылку на задачу через конфиг
+	taskLink := s.cfg.GetTaskURL(eventID.String(), taskID.String())
 
 	data := &email.RenderData{
 		FirstName:       firstName,
@@ -412,7 +479,8 @@ func (s *NotificationService) SendEventReminderEmail(ctx context.Context, userID
 		return
 	}
 
-	eventLink := fmt.Sprintf("%s/events/%s", s.cfg.FrontendURL, eventID.String())
+	// Формируем ссылку на поездку через конфиг
+	eventLink := s.cfg.GetEventURL(eventID.String())
 
 	data := &email.RenderData{
 		FirstName:      firstName,
@@ -448,7 +516,8 @@ func (s *NotificationService) SendChatMessageEmail(ctx context.Context, userID u
 		return
 	}
 
-	chatLink := fmt.Sprintf("%s/events/%s/chat", s.cfg.FrontendURL, eventID.String())
+	// Формируем ссылку на чат через конфиг
+	chatLink := s.cfg.GetChatURL(eventID.String())
 
 	data := &email.RenderData{
 		FirstName:   firstName,
@@ -469,69 +538,5 @@ func (s *NotificationService) SendChatMessageEmail(ctx context.Context, userID u
 	s.log.Info("NotificationService.SendChatMessageEmail: письмо отправлено в очередь",
 		"user_id", userID,
 		"event_id", eventID,
-	)
-}
-
-// truncateString обрезает строку до указанной длины
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
-}
-
-// SendVerificationEmail отправляет письмо с подтверждением email
-func (s *NotificationService) SendVerificationEmail(ctx context.Context, userID uuid.UUID, emailAddress, firstName, lastName, verificationToken string) {
-	s.log.Debug("NotificationService.SendVerificationEmail: начало",
-		"user_id", userID,
-		"email", emailAddress,
-	)
-
-	// Проверяем rate limit
-	allowed, err := s.emailRateLimiter.Allow(ctx, userID.String())
-	if err != nil {
-		s.log.Error("NotificationService.SendVerificationEmail: ошибка проверки rate limit",
-			"error", err,
-			"user_id", userID,
-		)
-		return
-	}
-	if !allowed {
-		s.log.Info("NotificationService.SendVerificationEmail: превышен лимит",
-			"user_id", userID,
-		)
-		return
-	}
-
-	// Формируем ссылку подтверждения
-	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", s.cfg.FrontendURL, verificationToken)
-
-	// Рендерим шаблон
-	data := &email.RenderData{
-		FirstName:        firstName,
-		LastName:         lastName,
-		Email:            emailAddress,
-		VerificationLink: verificationLink,
-	}
-	subject, body, err := s.templateEngine.Render(ctx, "user.verification", "ru", data)
-	if err != nil {
-		s.log.Error("NotificationService.SendVerificationEmail: ошибка рендеринга",
-			"error", err,
-			"user_id", userID,
-		)
-		return
-	}
-
-	s.log.Debug("NotificationService.SendVerificationEmail:",
-		"Token подтверждения", verificationToken,
-		"Ссылка подтверждения", verificationLink,
-		"Тело письма", body)
-
-	// Отправляем письмо асинхронно
-	s.emailSender.SendAsync(ctx, emailAddress, subject, body)
-
-	s.log.Info("NotificationService.SendVerificationEmail: письмо отправлено в очередь",
-		"user_id", userID,
-		"email", emailAddress,
 	)
 }
