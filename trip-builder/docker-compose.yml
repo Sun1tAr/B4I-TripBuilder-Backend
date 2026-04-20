@@ -242,6 +242,39 @@ services:
       retries: 3
     restart: unless-stopped
 
+  notification:
+    build:
+      context: services/notification/
+      dockerfile: Dockerfile
+    image: ${NOTIFICATION_IMAGE:-trip-builder-notification:local} # fixme
+    container_name: ${NOTIFICATION_CONTAINER_NAME:-trip-builder-backend-notification} # fixme
+    env_file:
+      - services/notification/.env
+    networks:
+      - trip-builder-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    restart: unless-stopped
+
+  # Добавляем MailHog для тестирования email в dev окружении
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ${MAILHOG_CONTAINER_NAME:-trip-builder-backend-mailhog}
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"  # SMTP порт
+      - "${MAILHOG_WEB_PORT:-8025}:8025"   # Веб-интерфейс
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+    profiles:
+      - dev
+      - local
+
 networks:
   trip-builder-network:
     driver: bridge
