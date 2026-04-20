@@ -166,17 +166,17 @@ func main() {
 			"group_id", groupID,
 		)
 
-		// Consumer для user.welcome
-		if cfg.UserWelcomeTopic != "" {
-			welcomeConsumer := kafka.NewUserWelcomeConsumer(
+		// Consumer для user.created
+		if cfg.UserCreatedTopic != "" {
+			userCreatedConsumer := kafka.NewUserCreatedConsumer(
 				cfg.Kafka.Brokers,
-				cfg.UserWelcomeTopic,
+				cfg.UserCreatedTopic,
 				groupID,
 				notificationService,
 				log,
 			)
-			go welcomeConsumer.Start(ctx)
-			log.Info("Consumer запущен", "topic", cfg.UserWelcomeTopic)
+			go userCreatedConsumer.Start(ctx)
+			log.Info("Consumer запущен", "topic", cfg.UserCreatedTopic)
 		}
 
 		// Consumer для event.invite

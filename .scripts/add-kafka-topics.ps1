@@ -27,6 +27,7 @@ docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost
 docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic event.deleted --partitions 1 --replication-factor 1
 
 docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic event.invite --partitions 1 --replication-factor 1
+docker exec trip-builder-backend-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic task.assigned --partitions 1 --replication-factor 1
 
 echo "=== Available topics ==="
 

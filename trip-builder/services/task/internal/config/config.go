@@ -32,6 +32,9 @@ type Config struct {
 
 	// Генерация задач из шаблонов при создании поездки
 	GenerateTemplatesEnabled bool `envconfig:"GENERATE_TEMPLATES_ENABLED" default:"false"`
+
+	UserServiceURL    string `envconfig:"USER_SERVICE_URL" required:"true"`
+	TaskAssignedTopic string `envconfig:"KAFKA_TOPIC_TASK_ASSIGNED" default:"task.assigned"`
 }
 
 func (c *Config) GetLogLevel() slog.Level {

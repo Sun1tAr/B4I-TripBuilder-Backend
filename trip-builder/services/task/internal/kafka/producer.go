@@ -64,3 +64,46 @@ func (p *TaskProducer) Close() error {
 	p.log.Debug("Закрытие TaskProducer")
 	return p.producer.Close()
 }
+
+// PublishTaskAssigned публикует событие о назначении задачи
+func (p *TaskProducer) PublishTaskAssigned(ctx context.Context, taskID, eventID, assignedTo uuid.UUID, taskTitle, taskDescription, eventTitle, assignedEmail, assignedName, priority string, dueDate time.Time, assignedBy uuid.UUID, assignedByName string) error {
+	p.log.Debug("Подготовка события task.assigned",
+		"task_id", taskID,
+		"assigned_to", assignedTo,
+	)
+
+	kafkaEvent := kafka.Event{
+		EventID:   uuid.New().String(),
+		EventType: "task.assigned",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"task_id":          taskID.String(),
+			"task_title":       taskTitle,
+			"task_description": taskDescription,
+			"event_id":         eventID.String(),
+			"event_title":      eventTitle,
+			"assigned_to":      assignedTo.String(),
+			"assigned_email":   assignedEmail,
+			"assigned_name":    assignedName,
+			"priority":         priority,
+			"due_date":         dueDate,
+			"assigned_by":      assignedBy.String(),
+			"assigned_by_name": assignedByName,
+		},
+	}
+
+	err := p.producer.PublishTo(ctx, "task.assigned", kafkaEvent)
+	if err != nil {
+		p.log.Error("Ошибка публикации task.assigned",
+			"error", err,
+			"task_id", taskID,
+		)
+		return err
+	}
+
+	p.log.Info("Событие task.assigned опубликовано",
+		"task_id", taskID,
+		"assigned_to", assignedTo,
+	)
+	return nil
+}

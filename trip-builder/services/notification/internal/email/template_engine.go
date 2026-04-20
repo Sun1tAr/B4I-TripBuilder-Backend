@@ -26,25 +26,26 @@ func NewTemplateEngine(templateRepo repository.TemplateRepository, log *logger.L
 
 // RenderData содержит данные для рендеринга шаблона (ЭКСПОРТИРУЕМЫЙ ТИП)
 type RenderData struct {
-	FirstName       string
-	LastName        string
-	Email           string
-	EventTitle      string
-	EventStartDate  string
-	EventEndDate    string
-	RouteTitle      string
-	InviterName     string
-	InviteLink      string
-	TaskTitle       string
-	TaskDescription string
-	TaskPriority    string
-	TaskDueDate     string
-	TaskLink        string
-	MessageText     string
-	SenderName      string
-	ChatLink        string
-	DaysLeft        int
-	EventLink       string
+	FirstName        string
+	LastName         string
+	Email            string
+	EventTitle       string
+	EventStartDate   string
+	EventEndDate     string
+	RouteTitle       string
+	InviterName      string
+	InviteLink       string
+	TaskTitle        string
+	TaskDescription  string
+	TaskPriority     string
+	TaskDueDate      string
+	TaskLink         string
+	MessageText      string
+	SenderName       string
+	ChatLink         string
+	DaysLeft         int
+	EventLink        string
+	VerificationLink string
 }
 
 // Render рендерит шаблон с данными
@@ -134,6 +135,14 @@ func (e *TemplateEngine) buildTemplateData(data *RenderData) map[string]interfac
 	}
 	if data.Email != "" {
 		result["Email"] = data.Email
+	}
+	if data.VerificationLink != "" {
+		result["VerificationLink"] = data.VerificationLink
+		e.log.Debug("buildTemplateData: VerificationLink добавлен в result",
+			"value", data.VerificationLink,
+		)
+	} else {
+		e.log.Warn("buildTemplateData: VerificationLink пустой!")
 	}
 	if data.EventTitle != "" {
 		result["EventTitle"] = data.EventTitle

@@ -67,6 +67,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Валидация...
 	if req.Email == "" || req.Password == "" || req.FirstName == "" || req.LastName == "" {
 		h.writeError(w, http.StatusBadRequest, "email, password, firstName and lastName are required", "")
 		return
@@ -76,7 +77,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _, err := h.authService.Register(r.Context(), req.Email, req.Password)
+	// Создаем пользователя
+	user, verificationToken, err := h.authService.Register(r.Context(), req.Email, req.Password)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailExists):
@@ -88,13 +90,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Отправляем событие в Kafka асинхронно
+	// Отправляем событие в Kafka
 	go func() {
 		eventData := authdto.UserCreatedData{
-			UserID:    user.ID,
-			Email:     user.Email,
-			FirstName: req.FirstName,
-			LastName:  req.LastName,
+			UserID:            user.ID,
+			Email:             user.Email,
+			FirstName:         req.FirstName,
+			LastName:          req.LastName,
+			VerificationToken: verificationToken,
 		}
 
 		event := kafka.Event{

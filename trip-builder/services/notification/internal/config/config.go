@@ -16,7 +16,7 @@ type Config struct {
 	config.AppConfig
 
 	// Kafka топики для консьюмеров
-	UserWelcomeTopic   string `envconfig:"KAFKA_TOPIC_USER_WELCOME" default:"user.welcome"`
+	UserCreatedTopic   string `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
 	EventInviteTopic   string `envconfig:"KAFKA_TOPIC_EVENT_INVITE" default:"event.invite"`
 	TaskAssignedTopic  string `envconfig:"KAFKA_TOPIC_TASK_ASSIGNED" default:"task.assigned"`
 	ChatMessageTopic   string `envconfig:"KAFKA_TOPIC_CHAT_MESSAGE" default:"chat.message"`

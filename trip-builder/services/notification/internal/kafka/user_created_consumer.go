@@ -12,20 +12,20 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-type UserWelcomeConsumer struct {
+type UserCreatedConsumer struct {
 	reader              *kafka.Reader
 	notificationService *service.NotificationService
 	log                 *logger.Logger
 }
 
-func NewUserWelcomeConsumer(
+func NewUserCreatedConsumer(
 	brokers []string,
 	topic string,
 	groupID string,
 	notificationService *service.NotificationService,
 	log *logger.Logger,
-) *UserWelcomeConsumer {
-	log.Debug("UserWelcomeConsumer: создание",
+) *UserCreatedConsumer {
+	log.Debug("UserCreatedConsumer: создание",
 		"brokers", brokers,
 		"topic", topic,
 		"group_id", groupID,
@@ -43,22 +43,22 @@ func NewUserWelcomeConsumer(
 		HeartbeatInterval: 3 * time.Second,
 	})
 
-	return &UserWelcomeConsumer{
+	return &UserCreatedConsumer{
 		reader:              reader,
 		notificationService: notificationService,
 		log:                 log,
 	}
 }
 
-func (c *UserWelcomeConsumer) Start(ctx context.Context) {
-	c.log.Info("UserWelcomeConsumer: запуск",
+func (c *UserCreatedConsumer) Start(ctx context.Context) {
+	c.log.Info("UserCreatedConsumer: запуск",
 		"topic", c.reader.Config().Topic,
 	)
 
 	for {
 		select {
 		case <-ctx.Done():
-			c.log.Info("UserWelcomeConsumer: остановка")
+			c.log.Info("UserCreatedConsumer: остановка")
 			return
 		default:
 			msg, err := c.reader.FetchMessage(ctx)
@@ -66,9 +66,7 @@ func (c *UserWelcomeConsumer) Start(ctx context.Context) {
 				if errors.Is(err, context.Canceled) {
 					return
 				}
-				c.log.Error("UserWelcomeConsumer: ошибка чтения сообщения",
-					"error", err,
-				)
+				c.log.Error("UserCreatedConsumer: ошибка чтения сообщения", "error", err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -76,63 +74,52 @@ func (c *UserWelcomeConsumer) Start(ctx context.Context) {
 			c.processMessage(ctx, msg)
 
 			if err := c.reader.CommitMessages(ctx, msg); err != nil {
-				c.log.Error("UserWelcomeConsumer: ошибка коммита",
-					"error", err,
-				)
+				c.log.Error("UserCreatedConsumer: ошибка коммита", "error", err)
 			}
 		}
 	}
 }
 
-func (c *UserWelcomeConsumer) processMessage(ctx context.Context, msg kafka.Message) {
-	c.log.Debug("UserWelcomeConsumer: получено сообщение",
+func (c *UserCreatedConsumer) processMessage(ctx context.Context, msg kafka.Message) {
+	c.log.Debug("UserCreatedConsumer: получено сообщение",
 		"topic", msg.Topic,
 		"partition", msg.Partition,
 		"offset", msg.Offset,
-		"size", len(msg.Value),
 	)
 
 	var base BaseEvent
 	if err := json.Unmarshal(msg.Value, &base); err != nil {
-		c.log.Error("UserWelcomeConsumer: ошибка парсинга базового события",
-			"error", err,
-		)
+		c.log.Error("UserCreatedConsumer: ошибка парсинга базового события", "error", err)
 		return
 	}
 
-	c.log.Debug("UserWelcomeConsumer: базовое событие",
-		"event_id", base.EventID,
-		"event_type", base.EventType,
-	)
-
-	if base.EventType != "user.welcome" {
-		c.log.Debug("UserWelcomeConsumer: пропуск события другого типа",
+	if base.EventType != "user.created" {
+		c.log.Debug("UserCreatedConsumer: пропуск события другого типа",
 			"event_type", base.EventType,
 		)
 		return
 	}
 
-	var data UserWelcomeData
+	var data UserCreatedData
 	if err := json.Unmarshal(base.Data, &data); err != nil {
-		c.log.Error("UserWelcomeConsumer: ошибка парсинга данных",
-			"error", err,
-		)
+		c.log.Error("UserCreatedConsumer: ошибка парсинга данных", "error", err)
 		return
 	}
 
-	c.log.Debug("UserWelcomeConsumer: данные события",
+	c.log.Debug("UserCreatedConsumer: данные события",
 		"user_id", data.UserID,
 		"email", data.Email,
 		"first_name", data.FirstName,
+		"has_verification_token", data.VerificationToken != "",
 	)
 
-	// Создаем in-app уведомление
+	// 1. Создаем in-app уведомление
 	notificationData := models.JSONMap{
 		"welcome_type": "new_user",
 	}
 
 	title := "Добро пожаловать в Trip Builder!"
-	body := "Спасибо за регистрацию! Начните планировать свои путешествия прямо сейчас."
+	body := "Пожалуйста, подтвердите ваш email, перейдя по ссылке в письме."
 
 	_, err := c.notificationService.CreateNotification(
 		ctx,
@@ -143,29 +130,29 @@ func (c *UserWelcomeConsumer) processMessage(ctx context.Context, msg kafka.Mess
 		notificationData,
 	)
 	if err != nil {
-		c.log.Error("UserWelcomeConsumer: ошибка создания in-app уведомления",
+		c.log.Error("UserCreatedConsumer: ошибка создания in-app уведомления",
 			"error", err,
 			"user_id", data.UserID,
 		)
-		// Продолжаем, email важнее
 	}
 
-	// Отправляем приветственное письмо
-	c.notificationService.SendWelcomeEmail(
+	// 2. Отправляем письмо с подтверждением email
+	c.notificationService.SendVerificationEmail(
 		ctx,
 		data.UserID,
 		data.Email,
 		data.FirstName,
 		data.LastName,
+		data.VerificationToken,
 	)
 
-	c.log.Info("UserWelcomeConsumer: уведомления отправлены",
+	c.log.Info("UserCreatedConsumer: уведомления отправлены",
 		"user_id", data.UserID,
 		"email", data.Email,
 	)
 }
 
-func (c *UserWelcomeConsumer) Close() error {
-	c.log.Debug("UserWelcomeConsumer: закрытие")
+func (c *UserCreatedConsumer) Close() error {
+	c.log.Debug("UserCreatedConsumer: закрытие")
 	return c.reader.Close()
 }

@@ -89,3 +89,31 @@ type WaypointVisitedData struct {
 	City       string    `json:"city"`
 	VisitedAt  time.Time `json:"visited_at"`
 }
+
+// ========== EVENT.INVITE ==========
+
+// EventInviteEvent событие приглашения в поездку
+type EventInviteEvent struct {
+	EventID   string          `json:"event_id"`
+	EventType string          `json:"event_type"`
+	Timestamp time.Time       `json:"timestamp"`
+	Data      EventInviteData `json:"data"`
+}
+
+// EventInviteData данные события event.invite
+type EventInviteData struct {
+	EventID      uuid.UUID     `json:"event_id"`
+	EventTitle   string        `json:"event_title"`
+	RouteTitle   string        `json:"route_title"`
+	InviterID    uuid.UUID     `json:"inviter_id"`
+	InviterName  string        `json:"inviter_name"`
+	StartDate    time.Time     `json:"start_date"`
+	InvitedUsers []InvitedUser `json:"invited_users"`
+}
+
+// InvitedUser информация о приглашенном пользователе
+type InvitedUser struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Email     string    `json:"email"`
+	FirstName string    `json:"first_name"`
+}

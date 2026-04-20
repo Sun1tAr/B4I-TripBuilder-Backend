@@ -15,14 +15,6 @@ type BaseEvent struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-// UserWelcomeData данные события user.welcome
-type UserWelcomeData struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Email     string    `json:"email"`
-	FirstName string    `json:"first_name"`
-	LastName  string    `json:"last_name"`
-}
-
 // EventInviteData данные события event.invite
 type EventInviteData struct {
 	EventID      uuid.UUID     `json:"event_id"`
@@ -91,4 +83,13 @@ type ReminderParticipant struct {
 	UserID    uuid.UUID `json:"user_id"`
 	Email     string    `json:"email"`
 	FirstName string    `json:"first_name"`
+}
+
+// UserCreatedData данные события user.created (для Notification Service)
+type UserCreatedData struct {
+	UserID            uuid.UUID `json:"user_id"`
+	Email             string    `json:"email"`
+	FirstName         string    `json:"first_name"`
+	LastName          string    `json:"last_name"`
+	VerificationToken string    `json:"verification_token"`
 }

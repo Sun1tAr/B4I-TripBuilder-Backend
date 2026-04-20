@@ -479,3 +479,59 @@ func truncateString(s string, maxLen int) string {
 	}
 	return s[:maxLen-3] + "..."
 }
+
+// SendVerificationEmail отправляет письмо с подтверждением email
+func (s *NotificationService) SendVerificationEmail(ctx context.Context, userID uuid.UUID, emailAddress, firstName, lastName, verificationToken string) {
+	s.log.Debug("NotificationService.SendVerificationEmail: начало",
+		"user_id", userID,
+		"email", emailAddress,
+	)
+
+	// Проверяем rate limit
+	allowed, err := s.emailRateLimiter.Allow(ctx, userID.String())
+	if err != nil {
+		s.log.Error("NotificationService.SendVerificationEmail: ошибка проверки rate limit",
+			"error", err,
+			"user_id", userID,
+		)
+		return
+	}
+	if !allowed {
+		s.log.Info("NotificationService.SendVerificationEmail: превышен лимит",
+			"user_id", userID,
+		)
+		return
+	}
+
+	// Формируем ссылку подтверждения
+	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", s.cfg.FrontendURL, verificationToken)
+
+	// Рендерим шаблон
+	data := &email.RenderData{
+		FirstName:        firstName,
+		LastName:         lastName,
+		Email:            emailAddress,
+		VerificationLink: verificationLink,
+	}
+	subject, body, err := s.templateEngine.Render(ctx, "user.verification", "ru", data)
+	if err != nil {
+		s.log.Error("NotificationService.SendVerificationEmail: ошибка рендеринга",
+			"error", err,
+			"user_id", userID,
+		)
+		return
+	}
+
+	s.log.Debug("NotificationService.SendVerificationEmail:",
+		"Token подтверждения", verificationToken,
+		"Ссылка подтверждения", verificationLink,
+		"Тело письма", body)
+
+	// Отправляем письмо асинхронно
+	s.emailSender.SendAsync(ctx, emailAddress, subject, body)
+
+	s.log.Info("NotificationService.SendVerificationEmail: письмо отправлено в очередь",
+		"user_id", userID,
+		"email", emailAddress,
+	)
+}

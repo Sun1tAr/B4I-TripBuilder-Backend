@@ -81,3 +81,31 @@ INSERT INTO email_templates (type, subject, body_template, language) VALUES
      '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><h1>Привет, {{.FirstName}}!</h1><p>У вас новое сообщение в чате поездки <strong>"{{.EventTitle}}"</strong>:</p><div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;"><strong>{{.SenderName}}:</strong><br>{{.MessageText}}</div><p><a href="{{.ChatLink}}">Перейти в чат</a></p><p>С уважением,<br>Команда Trip Builder</p></body></html>',
      'ru')
 ON CONFLICT (type, language) DO NOTHING;
+
+-- Шаблон письма с подтверждением email
+INSERT INTO email_templates (type, subject, body_template, language) VALUES
+    ('user.verification', 'Подтвердите ваш email в Trip Builder',
+     '<!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body>
+        <h1>Привет, {{.FirstName}}!</h1>
+        <p>Спасибо за регистрацию в Trip Builder!</p>
+        <p>Чтобы начать пользоваться сервисом, пожалуйста, подтвердите ваш email, перейдя по ссылке ниже:</p>
+        <p style="margin: 30px 0;">
+            <a href="{{.VerificationLink}}"
+               style="background-color: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                Подтвердить email
+            </a>
+        </p>
+        <p>Или скопируйте эту ссылку в браузер:</p>
+        <p style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; word-break: break-all;">
+            {{.VerificationLink}}
+        </p>
+        <p>Ссылка действительна в течение 24 часов.</p>
+        <hr style="margin: 30px 0;">
+        <p>С уважением,<br>Команда Trip Builder</p>
+    </body>
+    </html>',
+     'ru')
+    ON CONFLICT (type, language) DO NOTHING;

@@ -164,9 +164,9 @@ func (h *NotificationHandler) GetNotifications(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	size := 20
+	size := 10000
 	if sizeStr := r.URL.Query().Get("size"); sizeStr != "" {
-		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 && s <= 100 {
+		if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 && s <= 10000 {
 			size = s
 		}
 	}

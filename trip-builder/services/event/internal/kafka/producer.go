@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
+	eventdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 	"github.com/google/uuid"
@@ -239,5 +240,54 @@ func (p *EventProducer) PublishEventDeleted(ctx context.Context, eventID, ownerI
 	}
 
 	p.log.Info("Событие event.deleted опубликовано", "event_id", eventID)
+	return nil
+}
+
+// PublishEventInvite публикует событие о приглашении в поездку
+func (p *EventProducer) PublishEventInvite(ctx context.Context, eventID uuid.UUID, eventTitle, routeTitle string, inviterID uuid.UUID, inviterName string, startDate time.Time, invitedUsers []eventdto.InvitedUser) error {
+	p.log.Debug("Подготовка события event.invite",
+		"event_id", eventID,
+		"inviter_id", inviterID,
+		"invited_count", len(invitedUsers),
+	)
+
+	// Преобразуем в формат для Kafka
+	users := make([]map[string]interface{}, len(invitedUsers))
+	for i, u := range invitedUsers {
+		users[i] = map[string]interface{}{
+			"user_id":    u.UserID.String(),
+			"email":      u.Email,
+			"first_name": u.FirstName,
+		}
+	}
+
+	kafkaEvent := kafka.Event{
+		EventID:   uuid.New().String(),
+		EventType: "event.invite",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"event_id":      eventID.String(),
+			"event_title":   eventTitle,
+			"route_title":   routeTitle,
+			"inviter_id":    inviterID.String(),
+			"inviter_name":  inviterName,
+			"start_date":    startDate,
+			"invited_users": users,
+		},
+	}
+
+	err := p.producer.PublishTo(ctx, p.cfg.EventInviteTopic, kafkaEvent)
+	if err != nil {
+		p.log.Error("Ошибка публикации event.invite",
+			"error", err,
+			"event_id", eventID,
+		)
+		return err
+	}
+
+	p.log.Info("Событие event.invite опубликовано",
+		"event_id", eventID,
+		"invited_count", len(invitedUsers),
+	)
 	return nil
 }
