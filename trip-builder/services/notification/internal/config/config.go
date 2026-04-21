@@ -67,45 +67,30 @@ type Config struct {
 // GetVerifyEmailURL возвращает URL для подтверждения email
 // Плейсхолдер: %s = token
 func (c *Config) GetVerifyEmailURL(token string) string {
-	if c.VerifyEmailURL == "" {
-		return fmt.Sprintf("%s/verify-email?token=%s", c.BaseURL, token)
-	}
 	return fmt.Sprintf(c.VerifyEmailURL, token)
 }
 
 // GetEventInviteURL возвращает URL для приглашения в поездку
 // Плейсхолдер: %s = eventID
 func (c *Config) GetEventInviteURL(eventID string) string {
-	if c.EventInviteURL == "" {
-		return fmt.Sprintf("%s/events/invite/%s", c.BaseURL, eventID)
-	}
-	return fmt.Sprintf(c.EventInviteURL, eventID)
+	return c.EventInviteURL
 }
 
 // GetTaskURL возвращает URL для задачи
 // Плейсхолдеры: %s = eventID, %s = taskID (в порядке eventID)
 func (c *Config) GetTaskURL(eventID, taskID string) string {
-	if c.TaskURL == "" {
-		return fmt.Sprintf("%s/events/%s", c.BaseURL, eventID)
-	}
 	return fmt.Sprintf(c.TaskURL, eventID)
 }
 
 // GetChatURL возвращает URL для чата
 // Плейсхолдер: %s = eventID
 func (c *Config) GetChatURL(eventID string) string {
-	if c.ChatURL == "" {
-		return fmt.Sprintf("%s/events/%s/chat", c.BaseURL, eventID)
-	}
 	return fmt.Sprintf(c.ChatURL, eventID)
 }
 
 // GetEventURL возвращает URL для поездки
 // Плейсхолдер: %s = eventID
 func (c *Config) GetEventURL(eventID string) string {
-	if c.EventURL == "" {
-		return fmt.Sprintf("%s/events/%s", c.BaseURL, eventID)
-	}
 	return fmt.Sprintf(c.EventURL, eventID)
 }
 
