@@ -67,31 +67,35 @@ type Config struct {
 // GetVerifyEmailURL возвращает URL для подтверждения email
 // Плейсхолдер: %s = token
 func (c *Config) GetVerifyEmailURL(token string) string {
-	return fmt.Sprintf(c.VerifyEmailURL, token)
+	return c.IncludeBaseUrl(fmt.Sprintf(c.VerifyEmailURL, token))
 }
 
 // GetEventInviteURL возвращает URL для приглашения в поездку
 // Плейсхолдер: %s = eventID
 func (c *Config) GetEventInviteURL(eventID string) string {
-	return c.EventInviteURL
+	return c.IncludeBaseUrl(c.EventInviteURL)
 }
 
 // GetTaskURL возвращает URL для задачи
 // Плейсхолдеры: %s = eventID, %s = taskID (в порядке eventID)
 func (c *Config) GetTaskURL(eventID, taskID string) string {
-	return fmt.Sprintf(c.TaskURL, eventID)
+	return c.IncludeBaseUrl(fmt.Sprintf(c.TaskURL, eventID))
 }
 
 // GetChatURL возвращает URL для чата
 // Плейсхолдер: %s = eventID
 func (c *Config) GetChatURL(eventID string) string {
-	return fmt.Sprintf(c.ChatURL, eventID)
+	return c.IncludeBaseUrl(fmt.Sprintf(c.ChatURL, eventID))
 }
 
 // GetEventURL возвращает URL для поездки
 // Плейсхолдер: %s = eventID
 func (c *Config) GetEventURL(eventID string) string {
-	return fmt.Sprintf(c.EventURL, eventID)
+	return c.IncludeBaseUrl(fmt.Sprintf(c.EventURL, eventID))
+}
+
+func (c *Config) IncludeBaseUrl(uri string) string {
+	return c.BaseURL + uri
 }
 
 func (c *Config) GetLogLevel() slog.Level {
