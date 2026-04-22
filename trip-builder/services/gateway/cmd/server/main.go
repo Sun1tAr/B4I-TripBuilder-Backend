@@ -59,6 +59,7 @@ func main() {
 			r.Post("/auth/refresh", handlers.Proxy(cfg, "auth"))
 			r.Post("/auth/reset-password", handlers.Proxy(cfg, "auth"))
 			r.Post("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth"))
+			r.Get("/auth/verify/{token}", handlers.Proxy(cfg, "auth"))
 
 			// Routes
 			r.Get("/routes/popular", handlers.Proxy(cfg, "route"))

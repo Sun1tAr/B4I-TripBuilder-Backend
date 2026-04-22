@@ -24,6 +24,7 @@ type Config struct {
 	ParticipantJoinedTopic string `envconfig:"KAFKA_TOPIC_PARTICIPANT_JOINED" default:"event.participant_joined"`
 	UserCreatedTopic       string `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
 	EventDeletedTopic      string `envconfig:"KAFKA_TOPIC_EVENT_DELETED" default:"event.deleted"`
+	EventInviteTopic       string `envconfig:"KAFKA_TOPIC_EVENT_INVITE" default:"event.invite"`
 
 	// URL других сервисов
 	RouteServiceURL string `envconfig:"ROUTE_SERVICE_URL" required:"true"`

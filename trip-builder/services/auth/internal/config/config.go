@@ -18,26 +18,33 @@ type Config struct {
 	TokenLifetime    time.Duration `envconfig:"TOKEN_LIFETIME" default:"15m"`
 	RefreshLifetime  time.Duration `envconfig:"REFRESH_LIFETIME" default:"168h"` // 7 дней
 	BCryptCost       int           `envconfig:"BCRYPT_COST" default:"10"`
-	RateLimitLogin   int           `envconfig:"RATE_LIMIT_LOGIN" default:"5"`     // попыток в минуту
+	RateLimitLogin   int           `envconfig:"RATE_LIMIT_LOGIN" default:"5"` // попыток в минуту
 	RateLimitWindow  time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"1m"`
 	VerificationURL  string        `envconfig:"VERIFICATION_URL" required:"true"`
 	ResetPasswordURL string        `envconfig:"RESET_PASSWORD_URL" required:"true"`
 
+	// Время жизни токенов
+	VerificationTokenLifetime  time.Duration `envconfig:"VERIFICATION_TOKEN_LIFETIME" default:"24h"`
+	ResetPasswordTokenLifetime time.Duration `envconfig:"RESET_PASSWORD_TOKEN_LIFETIME" default:"1h"`
+
 	// Kafka топики
-	UserCreatedTopic string        `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
+	UserCreatedTopic string `envconfig:"KAFKA_TOPIC_USER_CREATED" default:"user.created"`
 
 	// Cron интервалы
 	TokenCleanupInterval time.Duration `envconfig:"TOKEN_CLEANUP_INTERVAL" default:"1h"`
 
 	// Health check интервалы
-	RedisHealthInterval  time.Duration `envconfig:"REDIS_HEALTH_INTERVAL" default:"5m"`
-	KafkaHealthInterval  time.Duration `envconfig:"KAFKA_HEALTH_INTERVAL" default:"5m"`
-	KafkaDialTimeout     time.Duration `envconfig:"KAFKA_DIAL_TIMEOUT" default:"3s"`
-	RedisPingTimeout     time.Duration `envconfig:"REDIS_PING_TIMEOUT" default:"3s"`
+	RedisHealthInterval time.Duration `envconfig:"REDIS_HEALTH_INTERVAL" default:"5m"`
+	KafkaHealthInterval time.Duration `envconfig:"KAFKA_HEALTH_INTERVAL" default:"5m"`
+	KafkaDialTimeout    time.Duration `envconfig:"KAFKA_DIAL_TIMEOUT" default:"3s"`
+	RedisPingTimeout    time.Duration `envconfig:"REDIS_PING_TIMEOUT" default:"3s"`
+
+	// URL других сервисов
+	UserServiceURL string `envconfig:"USER_SERVICE_URL" required:"true"`
 
 	// Настройки миграций
-	MigrationEnabled bool   `envconfig:"MIGRATION_ENABLED" default:"true"`
-	MigrationVersion uint   `envconfig:"MIGRATION_VERSION" default:"0"` // 0 = последняя
+	MigrationEnabled bool `envconfig:"MIGRATION_ENABLED" default:"true"`
+	MigrationVersion uint `envconfig:"MIGRATION_VERSION" default:"0"` // 0 = последняя
 }
 
 func (c *Config) GetLogLevel() slog.Level {

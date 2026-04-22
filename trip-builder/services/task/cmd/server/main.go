@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/client/event"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/client/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/http/handlers"
@@ -76,11 +77,22 @@ func main() {
 	// Инициализация клиента Event Service
 	eventClient := event.NewClient(cfg.EventServiceURL, cfg.HTTPClientTimeout, log)
 
+	// Инициализация клиента User Service
+	userClient := user.NewClient(cfg.UserServiceURL, cfg.HTTPClientTimeout, log)
+
 	// Инициализация Kafka продюсера
 	taskProducer := kafka.NewTaskProducer(cfg.Kafka.Brokers, log)
 
 	// Инициализация сервиса
-	taskService := service.NewTaskService(taskRepo, commentRepo, templateRepo, eventClient, taskProducer, log)
+	taskService := service.NewTaskService(
+		taskRepo,
+		commentRepo,
+		templateRepo,
+		eventClient,
+		userClient,
+		taskProducer,
+		log,
+	)
 
 	// Инициализация хендлеров
 	taskHandler := handlers.NewTaskHandler(taskService, log)

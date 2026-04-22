@@ -12,6 +12,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/auth"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/route"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/consumer"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository/postgres"
@@ -96,6 +97,7 @@ func main() {
 	// Инициализация HTTP-клиентов
 	routeClient := route.NewClient(cfg.RouteServiceURL, cfg.HTTPClientTimeout, log)
 	authClient := auth.NewClient(cfg.AuthServiceURL, cfg.HTTPClientTimeout, log)
+	userClient := user.NewClient(cfg.UserServiceURL, cfg.HTTPClientTimeout, log)
 
 	// Инициализация Kafka продюсера
 	eventProducer := kafka.NewEventProducer(cfg, log)
@@ -109,6 +111,7 @@ func main() {
 		commentRepo,
 		routeClient,
 		authClient,
+		userClient,
 		eventProducer,
 		redisClient,
 		log,

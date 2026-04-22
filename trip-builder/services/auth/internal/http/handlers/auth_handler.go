@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/client/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/utils"
@@ -25,14 +26,22 @@ type AuthHandler struct {
 	authService   *service.AuthService
 	rateLimiter   *ratelimit.RateLimiter
 	kafkaProducer *kafka.Producer
+	userClient    *user.Client
 	log           *logger.Logger
 }
 
-func NewAuthHandler(authService *service.AuthService, rateLimiter *ratelimit.RateLimiter, kafkaProducer *kafka.Producer, log *logger.Logger) *AuthHandler {
+func NewAuthHandler(
+	authService *service.AuthService,
+	rateLimiter *ratelimit.RateLimiter,
+	kafkaProducer *kafka.Producer,
+	userClient *user.Client,
+	log *logger.Logger,
+) *AuthHandler {
 	return &AuthHandler{
 		authService:   authService,
 		rateLimiter:   rateLimiter,
 		kafkaProducer: kafkaProducer,
+		userClient:    userClient,
 		log:           log,
 	}
 }
@@ -67,6 +76,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Валидация...
 	if req.Email == "" || req.Password == "" || req.FirstName == "" || req.LastName == "" {
 		h.writeError(w, http.StatusBadRequest, "email, password, firstName and lastName are required", "")
 		return
@@ -76,7 +86,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _, err := h.authService.Register(r.Context(), req.Email, req.Password)
+	// Создаем пользователя
+	user, verificationToken, err := h.authService.Register(r.Context(), req.Email, req.Password)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailExists):
@@ -88,13 +99,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Отправляем событие в Kafka асинхронно
+	// Отправляем событие в Kafka
 	go func() {
 		eventData := authdto.UserCreatedData{
-			UserID:    user.ID,
-			Email:     user.Email,
-			FirstName: req.FirstName,
-			LastName:  req.LastName,
+			UserID:            user.ID,
+			Email:             user.Email,
+			FirstName:         req.FirstName,
+			LastName:          req.LastName,
+			VerificationToken: verificationToken,
 		}
 
 		event := kafka.Event{
@@ -248,8 +260,11 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.authService.VerifyEmail(r.Context(), token); err != nil {
+	result, err := h.authService.VerifyEmail(r.Context(), token)
+	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrUserNotFound):
+			h.writeError(w, http.StatusNotFound, "user not found", "")
 		case errors.Is(err, service.ErrInvalidToken):
 			h.writeError(w, http.StatusBadRequest, "invalid verification token", "")
 		default:
@@ -259,7 +274,77 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "email successfully verified"})
+	// Если токен истек — отправляем новое письмо
+	if result.IsExpired {
+		h.log.Info("VerifyEmail: токен истек, отправляем новое письмо",
+			"user_id", result.UserID,
+			"email", result.UserEmail,
+		)
+
+		// Генерируем новый токен
+		newToken, err := h.authService.ResendVerificationEmail(r.Context(), result.UserID)
+		if err != nil {
+			h.log.Error("VerifyEmail: ошибка генерации нового токена", "error", err)
+			h.writeJSON(w, http.StatusOK, authdto.MessageResponse{
+				Message: "Verification link expired. A new verification email has been sent. Please check your inbox.",
+			})
+			return
+		}
+
+		// Получаем профиль из User Service
+		firstName := ""
+		lastName := ""
+		profile, err := h.userClient.GetProfile(r.Context(), result.UserID)
+		if err != nil {
+			h.log.Error("VerifyEmail: ошибка получения профиля", "error", err, "user_id", result.UserID)
+		} else if profile != nil {
+			firstName = profile.FirstName
+			lastName = profile.LastName
+		}
+
+		// Публикуем событие для отправки нового письма
+		go func() {
+			eventData := authdto.UserCreatedData{
+				UserID:            result.UserID,
+				Email:             result.UserEmail,
+				FirstName:         firstName,
+				LastName:          lastName,
+				VerificationToken: newToken,
+			}
+
+			event := kafka.Event{
+				EventID:   uuid.New().String(),
+				EventType: "user.created",
+				Timestamp: time.Now(),
+				Data:      eventData,
+			}
+
+			if err := h.kafkaProducer.Publish(context.Background(), event); err != nil {
+				h.log.Error("Ошибка отправки user.created для повторной верификации",
+					"error", err,
+					"user_id", result.UserID,
+				)
+			}
+		}()
+
+		h.writeJSON(w, http.StatusBadRequest, authdto.MessageResponse{
+			Message: "Verification link expired. A new verification email has been sent. Please check your inbox.",
+		})
+		return
+	}
+
+	// Если пользователь уже подтвержден
+	if result.UserVerified {
+		h.writeJSON(w, http.StatusOK, authdto.MessageResponse{
+			Message: "Email already verified. You can now login.",
+		})
+		return
+	}
+
+	// Успешное подтверждение
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{
+		Message: "Email successfully verified. You can now login.",
+	})
 }
 
 // RequestPasswordReset запрос сброса пароля

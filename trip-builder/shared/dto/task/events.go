@@ -35,3 +35,27 @@ type EventUpdatedData struct {
 	StartDate time.Time `json:"start_date"`
 	EndDate   time.Time `json:"end_date"`
 }
+
+// TaskAssignedEvent событие назначения задачи
+type TaskAssignedEvent struct {
+	EventID   string           `json:"event_id"`
+	EventType string           `json:"event_type"`
+	Timestamp time.Time        `json:"timestamp"`
+	Data      TaskAssignedData `json:"data"`
+}
+
+// TaskAssignedData данные события task.assigned
+type TaskAssignedData struct {
+	TaskID          uuid.UUID `json:"task_id"`
+	TaskTitle       string    `json:"task_title"`
+	TaskDescription string    `json:"task_description"`
+	EventID         uuid.UUID `json:"event_id"`
+	EventTitle      string    `json:"event_title"`
+	AssignedTo      uuid.UUID `json:"assigned_to"`
+	AssignedEmail   string    `json:"assigned_email"`
+	AssignedName    string    `json:"assigned_name"`
+	Priority        string    `json:"priority"`
+	DueDate         time.Time `json:"due_date"`
+	AssignedBy      uuid.UUID `json:"assigned_by"`
+	AssignedByName  string    `json:"assigned_by_name"`
+}

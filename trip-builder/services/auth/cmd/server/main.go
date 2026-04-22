@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/client/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/http/handlers"
@@ -121,8 +122,11 @@ func main() {
 	healthChecker := health.NewChecker(log, redisClient, cfg.Kafka.Brokers, healthConfig)
 	go healthChecker.Start(context.Background())
 
+	// Инициализация клиента User Service
+	userClient := user.NewClient(cfg.UserServiceURL, 10*time.Second, log)
+
 	// Инициализация хендлеров
-	authHandler := handlers.NewAuthHandler(authService, rateLimiter, kafkaProducer, log)
+	authHandler := handlers.NewAuthHandler(authService, rateLimiter, kafkaProducer, userClient, log)
 
 	// Роутер
 	r := mux.NewRouter()

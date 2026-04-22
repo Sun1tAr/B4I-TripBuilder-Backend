@@ -9,6 +9,7 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/auth"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/route"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/client/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/config"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/domain/repository"
@@ -41,6 +42,7 @@ type EventService struct {
 	commentRepo     repository.CommentRepository
 	routeClient     *route.Client
 	authClient      *auth.Client
+	userClient      *user.Client
 	producer        *kafka.EventProducer
 	log             *logger.Logger
 	redisClient     *redis.Client
@@ -55,6 +57,7 @@ func NewEventService(
 	commentRepo repository.CommentRepository,
 	routeClient *route.Client,
 	authClient *auth.Client,
+	userClient *user.Client,
 	producer *kafka.EventProducer,
 	redisClient *redis.Client,
 	log *logger.Logger,
@@ -68,6 +71,7 @@ func NewEventService(
 		commentRepo:     commentRepo,
 		routeClient:     routeClient,
 		authClient:      authClient,
+		userClient:      userClient,
 		producer:        producer,
 		redisClient:     redisClient,
 		log:             log,
@@ -774,7 +778,7 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 		return ErrNotOwner
 	}
 
-	// Проверяем, что поездка ещё не началась
+	// Получаем информацию о событии
 	event, err := s.eventRepo.GetByID(ctx, eventID)
 	if err != nil {
 		return err
@@ -782,9 +786,19 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 	if event == nil {
 		return ErrEventNotFound
 	}
-	if event.StartDate.Before(time.Now()) {
-		return errors.New("cannot invite to event that has already started")
+
+	// Получаем информацию о маршруте
+	routeData, err := s.routeClient.GetRouteWithWaypoints(ctx, event.RouteID.String())
+	if err != nil {
+		s.log.Error("InviteParticipants: ошибка получения маршрута", "error", err)
+		routeData = &models.RouteWithWaypoints{Title: ""}
 	}
+
+	// Получаем имя приглашающего
+	inviterName := s.getUserFullName(ctx, ownerID)
+
+	// Собираем список успешно приглашенных для Kafka
+	invitedUsers := make([]eventdto.InvitedUser, 0)
 
 	for _, email := range emails {
 		// Проверяем, не пытается ли владелец пригласить себя
@@ -800,6 +814,7 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 		}
 
 		var participant *models.Participant
+		var invitedUser eventdto.InvitedUser
 
 		if userInfo != nil {
 			// Пользователь уже зарегистрирован
@@ -809,7 +824,16 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 				UserID:          userInfo.UserID,
 				Role:            "member",
 				ApprovedByOwner: true,
-				ApprovedByUser:  nil, // null = приглашение
+				ApprovedByUser:  nil,
+			}
+
+			// Получаем имя пользователя
+			firstName := s.getUserFullName(ctx, userInfo.UserID)
+
+			invitedUser = eventdto.InvitedUser{
+				UserID:    userInfo.UserID,
+				Email:     email,
+				FirstName: firstName,
 			}
 		} else {
 			// Пользователь не зарегистрирован
@@ -819,8 +843,13 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 				UserID:          uuid.Nil,
 				Role:            "member",
 				ApprovedByOwner: true,
-				ApprovedByUser:  nil, // null = приглашение
+				ApprovedByUser:  nil,
 				InvitedEmail:    email,
+			}
+			invitedUser = eventdto.InvitedUser{
+				UserID:    uuid.Nil,
+				Email:     email,
+				FirstName: email,
 			}
 		}
 
@@ -828,7 +857,26 @@ func (s *EventService) InviteParticipants(ctx context.Context, eventID, ownerID 
 			s.log.Error("InviteParticipants: ошибка создания", "error", err, "email", email)
 		} else {
 			s.log.Info("InviteParticipants: приглашение создано", "event_id", eventID, "email", email)
+			invitedUsers = append(invitedUsers, invitedUser)
 		}
+	}
+
+	// Публикуем событие в Kafka, если есть приглашенные
+	if len(invitedUsers) > 0 {
+		go func() {
+			if err := s.producer.PublishEventInvite(
+				context.Background(),
+				eventID,
+				event.Title,
+				routeData.Title,
+				ownerID,
+				inviterName,
+				event.StartDate,
+				invitedUsers,
+			); err != nil {
+				s.log.Error("InviteParticipants: ошибка публикации event.invite", "error", err)
+			}
+		}()
 	}
 
 	return nil
@@ -878,7 +926,12 @@ func (s *EventService) IsEventParticipant(ctx context.Context, eventID, userID u
 
 // CreateEvent создаёт новую поездку
 func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *models.CreateEventRequest) (*models.EventWithDetails, error) {
-	s.log.Debug("CreateEvent: начало", "user_id", userID, "route_id", req.RouteID, "title", req.Title, "start_date", req.StartDate)
+	s.log.Debug("CreateEvent: начало",
+		"user_id", userID,
+		"route_id", req.RouteID,
+		"title", req.Title,
+		"start_date", req.StartDate,
+	)
 
 	// Проверяем дату начала
 	if req.StartDate.Before(time.Now()) {
@@ -935,9 +988,9 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 		return nil, err
 	}
 
-	// Добавляем владельца
+	// Добавляем владельца как участника
 	approvedTrue := true
-	participant := &models.Participant{
+	ownerParticipant := &models.Participant{
 		InviteID:        uuid.New(),
 		EventID:         eventID,
 		UserID:          userID,
@@ -945,63 +998,153 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 		ApprovedByOwner: true,
 		ApprovedByUser:  &approvedTrue,
 	}
-	if err := s.participantRepo.Add(ctx, participant); err != nil {
+	if err := s.participantRepo.Add(ctx, ownerParticipant); err != nil {
 		s.log.Error("CreateEvent: ошибка добавления владельца", "error", err, "event_id", eventID)
 	}
 
-	// Обрабатываем приглашения
+	// Собираем участников для Kafka (пока только владелец)
 	participants := []uuid.UUID{userID}
+
+	// Собираем приглашенных для Kafka
+	invitedUsers := make([]eventdto.InvitedUser, 0)
+
+	// Получаем имя владельца (приглашающего) один раз
+	inviterName := s.getUserFullName(ctx, userID)
+	s.log.Debug("CreateEvent: имя приглашающего", "user_id", userID, "inviter_name", inviterName)
+
+	// Обрабатываем приглашения
 	if req.IsGroup && len(req.InvitedEmails) > 0 {
+		s.log.Debug("CreateEvent: обработка приглашений", "emails_count", len(req.InvitedEmails))
+
 		for _, email := range req.InvitedEmails {
+			// Пропускаем пустые email
+			if email == "" {
+				continue
+			}
+
+			// Проверяем, существует ли пользователь
 			userInfo, err := s.authClient.GetUserByEmail(ctx, email)
 			if err != nil {
 				s.log.Error("CreateEvent: ошибка проверки пользователя", "error", err, "email", email)
 				continue
 			}
 
+			// Проверяем, не пытается ли владелец пригласить себя
+			if userInfo != nil && userInfo.UserID == userID {
+				s.log.Debug("CreateEvent: владелец пытается пригласить себя, пропускаем", "email", email)
+				continue
+			}
+
 			var invite *models.Participant
+			var invitedUser eventdto.InvitedUser
 
 			if userInfo != nil {
+				// Пользователь уже зарегистрирован
 				invite = &models.Participant{
 					InviteID:        uuid.New(),
 					EventID:         eventID,
 					UserID:          userInfo.UserID,
 					Role:            "member",
 					ApprovedByOwner: true,
-					ApprovedByUser:  nil,
-					InvitedEmail:    "",
+					ApprovedByUser:  nil, // null = приглашение ожидает ответа
 				}
 				participants = append(participants, userInfo.UserID)
-				s.log.Trace("CreateEvent: пользователь найден, создаём приглашение", "event_id", eventID, "user_id", userInfo.UserID, "email", email)
+
+				// Получаем имя пользователя
+				firstName := s.getUserFullName(ctx, userInfo.UserID)
+				invitedUser = eventdto.InvitedUser{
+					UserID:    userInfo.UserID,
+					Email:     email,
+					FirstName: firstName,
+				}
+				s.log.Debug("CreateEvent: приглашение для зарегистрированного пользователя",
+					"user_id", userInfo.UserID,
+					"email", email,
+				)
 			} else {
+				// Пользователь не зарегистрирован
 				invite = &models.Participant{
 					InviteID:        uuid.New(),
 					EventID:         eventID,
-					UserID:          uuid.Nil,
+					UserID:          uuid.Nil, // будет связано позже через user.created consumer
 					Role:            "member",
 					ApprovedByOwner: true,
 					ApprovedByUser:  nil,
 					InvitedEmail:    email,
 				}
-				s.log.Trace("CreateEvent: пользователь не найден, создаём приглашение", "event_id", eventID, "email", email)
+				invitedUser = eventdto.InvitedUser{
+					UserID:    uuid.Nil,
+					Email:     email,
+					FirstName: email, // используем email как имя
+				}
+				s.log.Debug("CreateEvent: приглашение для незарегистрированного пользователя",
+					"email", email,
+				)
 			}
 
+			// Сохраняем приглашение в БД
 			if err := s.participantRepo.Add(ctx, invite); err != nil {
-				s.log.Error("CreateEvent: ошибка создания", "error", err, "email", email)
+				s.log.Error("CreateEvent: ошибка создания приглашения", "error", err, "email", email)
+				continue
 			}
+
+			invitedUsers = append(invitedUsers, invitedUser)
+			s.log.Info("CreateEvent: приглашение создано", "event_id", eventID, "email", email)
 		}
 	}
 
-	// Публикуем событие
-	if err := s.producer.PublishEventCreated(ctx, eventID, req.RouteID, userID, req.Title, req.StartDate, endDate, participants); err != nil {
-		s.log.Error("CreateEvent: ошибка публикации события", "error", err, "event_id", eventID)
+	// Публикуем событие о создании поездки
+	go func() {
+		if err := s.producer.PublishEventCreated(
+			context.Background(),
+			eventID,
+			req.RouteID,
+			userID,
+			req.Title,
+			req.StartDate,
+			endDate,
+			participants,
+		); err != nil {
+			s.log.Error("CreateEvent: ошибка публикации event.created", "error", err, "event_id", eventID)
+		} else {
+			s.log.Info("CreateEvent: событие event.created опубликовано", "event_id", eventID)
+		}
+	}()
+
+	// Публикуем событие о приглашениях, если они есть
+	if len(invitedUsers) > 0 {
+		go func() {
+			if err := s.producer.PublishEventInvite(
+				context.Background(),
+				eventID,
+				req.Title,
+				routeData.Title,
+				userID,
+				inviterName, // ← используем ранее полученное имя
+				req.StartDate,
+				invitedUsers,
+			); err != nil {
+				s.log.Error("CreateEvent: ошибка публикации event.invite", "error", err, "event_id", eventID)
+			} else {
+				s.log.Info("CreateEvent: событие event.invite опубликовано",
+					"event_id", eventID,
+					"invited_count", len(invitedUsers),
+				)
+			}
+		}()
 	}
 
-	s.log.Info("CreateEvent: поездка создана", "event_id", eventID, "user_id", userID)
+	s.log.Info("CreateEvent: поездка создана",
+		"event_id", eventID,
+		"user_id", userID,
+		"is_group", req.IsGroup,
+		"invited_count", len(invitedUsers),
+	)
 
+	// Формируем ответ
 	return &models.EventWithDetails{
 		Event:        *event,
-		Participants: []models.Participant{*participant},
+		Participants: []models.Participant{*ownerParticipant},
 		Waypoints:    waypoints,
 	}, nil
 }
@@ -1249,4 +1392,14 @@ func (s *EventService) UpdateEventCover(ctx context.Context, eventID, userID uui
 
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// getUserProfile получает профиль пользователя из User Service
+func (s *EventService) getUserProfile(ctx context.Context, userID uuid.UUID) (*user.ProfileResponse, error) {
+	return s.userClient.GetProfile(ctx, userID)
+}
+
+// getUserFullName возвращает полное имя пользователя
+func (s *EventService) getUserFullName(ctx context.Context, userID uuid.UUID) string {
+	return s.userClient.GetFullName(ctx, userID)
 }

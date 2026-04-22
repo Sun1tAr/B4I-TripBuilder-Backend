@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/client/event"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/client/user"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/kafka"
@@ -32,6 +34,7 @@ type TaskService struct {
 	commentRepo  repository.TaskCommentRepository
 	templateRepo repository.TaskTemplateRepository
 	eventClient  *event.Client
+	userClient   *user.Client
 	producer     *kafka.TaskProducer
 	log          *logger.Logger
 }
@@ -41,6 +44,7 @@ func NewTaskService(
 	commentRepo repository.TaskCommentRepository,
 	templateRepo repository.TaskTemplateRepository,
 	eventClient *event.Client,
+	userClient *user.Client,
 	producer *kafka.TaskProducer,
 	log *logger.Logger,
 ) *TaskService {
@@ -49,6 +53,7 @@ func NewTaskService(
 		commentRepo:  commentRepo,
 		templateRepo: templateRepo,
 		eventClient:  eventClient,
+		userClient:   userClient,
 		producer:     producer,
 		log:          log,
 	}
@@ -146,6 +151,15 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 	}
 
 	s.log.Info("CreateTask: задача создана", "task_id", task.ID, "approved_by_admin", approvedByAdmin)
+
+	// Если задача назначена на конкретного пользователя — публикуем событие
+	// ВАЖНО: используем context.Background() чтобы не зависеть от HTTP-контекста
+	if task.AssignedTo != nil && *task.AssignedTo != uuid.Nil && *task.AssignedTo != userID {
+		go func() {
+			s.publishTaskAssigned(context.Background(), task, userID, event)
+		}()
+	}
+
 	return task, nil
 }
 
@@ -238,81 +252,116 @@ func (s *TaskService) ApproveTask(ctx context.Context, taskID, userID uuid.UUID)
 
 // UpdateTask обновляет задачу
 func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *models.UpdateTaskRequest, userID uuid.UUID) (*models.Task, error) {
-	s.log.Debug("UpdateTask: начало", "task_id", taskID, "user_id", userID)
+	s.log.Debug("UpdateTask: начало",
+		"task_id", taskID,
+		"user_id", userID,
+	)
 
 	task, err := s.taskRepo.GetByID(ctx, taskID)
 	if err != nil {
+		s.log.Error("UpdateTask: ошибка получения задачи", "error", err, "task_id", taskID)
 		return nil, err
 	}
 	if task == nil {
+		s.log.Debug("UpdateTask: задача не найдена", "task_id", taskID)
 		return nil, ErrTaskNotFound
 	}
 
-	// Проверяем права
+	// Проверяем права: владелец события, создатель задачи или исполнитель
 	isOwner, err := s.eventClient.IsEventOwner(ctx, task.EventID, userID)
 	if err != nil {
-		s.log.Error("UpdateTask: ошибка проверки владельца", "error", err)
+		s.log.Error("UpdateTask: ошибка проверки владельца", "error", err, "task_id", taskID)
 		return nil, err
 	}
+
 	isCreator := task.CreatedBy == userID
 	isAssigned := task.AssignedTo != nil && *task.AssignedTo == userID
 
-	// Если задача не подтверждена, менять может только создатель или админ
+	s.log.Debug("UpdateTask: проверка прав",
+		"task_id", taskID,
+		"is_owner", isOwner,
+		"is_creator", isCreator,
+		"is_assigned", isAssigned,
+		"approved_by_admin", task.ApprovedByAdmin,
+	)
+
+	// Если задача не подтверждена администратором, менять может только создатель или владелец
 	if !task.ApprovedByAdmin && !isCreator && !isOwner {
-		s.log.Warn("UpdateTask: попытка редактирования неподтвержденной задачи", "task_id", taskID, "user_id", userID)
+		s.log.Warn("UpdateTask: попытка редактирования неподтвержденной задачи",
+			"task_id", taskID,
+			"user_id", userID,
+		)
 		return nil, ErrNotAuthorized
 	}
 
-	s.log.Trace("UpdateTask: обновление полей", "task_id", taskID, "is_owner", isOwner, "is_creator", isCreator, "is_assigned", isAssigned)
+	// Запоминаем старого исполнителя для проверки изменений
+	oldAssignedTo := task.AssignedTo
 
-	// Обновляем Title (могут все, у кого есть canEdit)
+	// Флаг для отслеживания изменений статуса
+	oldStatus := task.Status
+	statusChangedToDone := false
+
+	// Обновляем Title (могут владелец или создатель)
 	if req.Title != nil {
 		if !isOwner && !isCreator {
+			s.log.Warn("UpdateTask: попытка изменения title без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
 		task.Title = *req.Title
+		s.log.Debug("UpdateTask: title обновлен", "task_id", taskID, "new_title", task.Title)
 	}
 
-	// Обновляем Description (могут все, у кого есть canEdit)
+	// Обновляем Description (могут владелец или создатель)
 	if req.Description != nil {
 		if !isOwner && !isCreator {
+			s.log.Warn("UpdateTask: попытка изменения description без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
 		task.Description = *req.Description
+		s.log.Debug("UpdateTask: description обновлен", "task_id", taskID)
 	}
 
-	// Обновляем Priority (могут все, у кого есть canEdit)
+	// Обновляем Priority (могут владелец или создатель)
 	if req.Priority != nil {
 		if !isOwner && !isCreator {
+			s.log.Warn("UpdateTask: попытка изменения priority без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
 		if *req.Priority != "high" && *req.Priority != "medium" && *req.Priority != "low" {
 			return nil, ErrInvalidPriority
 		}
 		task.Priority = *req.Priority
+		s.log.Debug("UpdateTask: priority обновлен", "task_id", taskID, "new_priority", task.Priority)
 	}
 
-	// Обновляем DueDate (могут все, у кого есть canEdit)
+	// Обновляем DueDate (могут владелец или создатель)
 	if req.DueDate != nil {
 		if !isOwner && !isCreator {
+			s.log.Warn("UpdateTask: попытка изменения due_date без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
 		if req.DueDate.Before(time.Now()) {
 			return nil, ErrInvalidDueDate
 		}
 		task.DueDate = req.DueDate
+		s.log.Debug("UpdateTask: due_date обновлен", "task_id", taskID, "new_due_date", task.DueDate)
 	}
 
-	// Обновляем AssignedTo (только владелец поездки)
+	// Обновляем AssignedTo (только владелец или создатель)
 	if req.AssignedTo != nil {
 		if !isOwner && !isCreator {
 			s.log.Warn("UpdateTask: попытка переназначения без прав", "task_id", taskID, "user_id", userID)
 			return nil, ErrNotAuthorized
 		}
 		task.AssignedTo = req.AssignedTo
+		s.log.Debug("UpdateTask: assigned_to обновлен",
+			"task_id", taskID,
+			"old_assigned_to", oldAssignedTo,
+			"new_assigned_to", task.AssignedTo,
+		)
 	}
 
-	// Обновляем Status (могут владелец, создатель, исполнитель)
+	// Обновляем Status (могут владелец, создатель или исполнитель)
 	if req.Status != nil {
 		if !isOwner && !isCreator && !isAssigned {
 			s.log.Warn("UpdateTask: попытка изменения статуса без прав", "task_id", taskID, "user_id", userID)
@@ -323,32 +372,91 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 			return nil, ErrInvalidStatus
 		}
 
-		oldStatus := task.Status
 		task.Status = *req.Status
+		s.log.Debug("UpdateTask: status обновлен", "task_id", taskID, "old_status", oldStatus, "new_status", task.Status)
 
 		if task.Status == "done" && oldStatus != "done" {
 			now := time.Now()
 			task.CompletedAt = &now
+			statusChangedToDone = true
 			s.log.Info("UpdateTask: задача выполнена", "task_id", taskID, "user_id", userID)
+		}
 
-			// Публикуем событие о выполнении задачи
-			go func() {
-				if err := s.producer.PublishTaskCompleted(context.Background(), taskID, task.EventID, userID, task.Title); err != nil {
-					s.log.Error("UpdateTask: ошибка публикации события", "error", err, "task_id", taskID)
-				}
-			}()
+		if task.Status == "cancelled" {
+			s.log.Info("UpdateTask: задача отменена", "task_id", taskID, "user_id", userID)
 		}
 	}
 
+	// Обновляем updated_at
 	now := time.Now()
 	task.UpdatedAt = &now
 
+	// Сохраняем изменения в БД
 	if err := s.taskRepo.Update(ctx, task); err != nil {
 		s.log.Error("UpdateTask: ошибка сохранения", "error", err, "task_id", taskID)
 		return nil, err
 	}
 
-	s.log.Info("UpdateTask: задача обновлена", "task_id", taskID, "user_id", userID, "new_status", task.Status)
+	s.log.Debug("UpdateTask: задача сохранена в БД", "task_id", taskID)
+
+	// Получаем информацию о событии для Kafka
+	event, err := s.eventClient.GetEvent(ctx, task.EventID)
+	if err != nil {
+		s.log.Error("UpdateTask: ошибка получения события для Kafka", "error", err, "event_id", task.EventID)
+	}
+
+	// Если изменился исполнитель — публикуем событие task.assigned
+	if req.AssignedTo != nil && *req.AssignedTo != uuid.Nil {
+		shouldPublish := false
+		if oldAssignedTo == nil {
+			shouldPublish = true
+		} else if *oldAssignedTo != *req.AssignedTo {
+			shouldPublish = true
+		}
+
+		if shouldPublish {
+			s.log.Info("UpdateTask: исполнитель изменен, публикуем task.assigned",
+				"task_id", taskID,
+				"old_assigned_to", oldAssignedTo,
+				"new_assigned_to", *req.AssignedTo,
+			)
+			// Используем горутину с context.Background() чтобы не зависеть от HTTP-контекста
+			go func() {
+				s.publishTaskAssigned(context.Background(), task, userID, event)
+			}()
+		}
+	}
+
+	// Если задача выполнена — публикуем task.completed
+	if statusChangedToDone {
+		s.log.Info("UpdateTask: задача выполнена, публикуем task.completed",
+			"task_id", taskID,
+			"event_id", task.EventID,
+		)
+		go func() {
+			if err := s.producer.PublishTaskCompleted(
+				context.Background(),
+				taskID,
+				task.EventID,
+				userID,
+				task.Title,
+			); err != nil {
+				s.log.Error("UpdateTask: ошибка публикации task.completed",
+					"error", err,
+					"task_id", taskID,
+				)
+			} else {
+				s.log.Info("UpdateTask: событие task.completed опубликовано", "task_id", taskID)
+			}
+		}()
+	}
+
+	s.log.Info("UpdateTask: задача успешно обновлена",
+		"task_id", taskID,
+		"user_id", userID,
+		"new_status", task.Status,
+	)
+
 	return task, nil
 }
 
@@ -566,4 +674,93 @@ func (s *TaskService) CancelEventTasks(ctx context.Context, eventID uuid.UUID) e
 func (s *TaskService) GetCommentsCount(ctx context.Context, taskID uuid.UUID) (int64, error) {
 	s.log.Trace("GetCommentsCount: начало", "task_id", taskID)
 	return s.commentRepo.CountByTaskID(ctx, taskID)
+}
+
+// publishTaskAssigned публикует событие о назначении задачи
+// Принимает уже полученный event, чтобы не делать лишний запрос
+func (s *TaskService) publishTaskAssigned(ctx context.Context, task *models.Task, assignedBy uuid.UUID, event *event.Event) {
+	s.log.Debug("publishTaskAssigned: начало",
+		"task_id", task.ID,
+		"assigned_to", task.AssignedTo,
+		"assigned_by", assignedBy,
+	)
+
+	if task.AssignedTo == nil || *task.AssignedTo == uuid.Nil {
+		s.log.Debug("publishTaskAssigned: задача не назначена, пропускаем")
+		return
+	}
+
+	// Получаем профиль исполнителя
+	var assignedEmail, assignedName string
+	assignedProfile, err := s.userClient.GetUserByID(ctx, *task.AssignedTo)
+	if err != nil {
+		s.log.Error("publishTaskAssigned: ошибка получения профиля исполнителя",
+			"error", err,
+			"user_id", *task.AssignedTo,
+		)
+		// Fallback
+		assignedEmail = fmt.Sprintf("user-%s@tripbuilder.local", task.AssignedTo.String()[:8])
+		assignedName = "Участник"
+	} else if assignedProfile != nil {
+		assignedName = fmt.Sprintf("%s %s", assignedProfile.FirstName, assignedProfile.LastName)
+		if assignedName == " " {
+			assignedName = "Участник"
+		}
+		assignedEmail = assignedProfile.Email
+		if assignedEmail == "" {
+			assignedEmail = fmt.Sprintf("user-%s@tripbuilder.local", task.AssignedTo.String()[:8])
+		}
+	} else {
+		assignedEmail = fmt.Sprintf("user-%s@tripbuilder.local", task.AssignedTo.String()[:8])
+		assignedName = "Участник"
+	}
+
+	// Получаем профиль назначившего
+	var assignedByName string
+	assignedByProfile, err := s.userClient.GetUserByID(ctx, assignedBy)
+	if err != nil {
+		s.log.Error("publishTaskAssigned: ошибка получения профиля назначившего",
+			"error", err,
+			"user_id", assignedBy,
+		)
+		assignedByName = "Пользователь"
+	} else if assignedByProfile != nil {
+		assignedByName = fmt.Sprintf("%s %s", assignedByProfile.FirstName, assignedByProfile.LastName)
+		if assignedByName == " " {
+			assignedByName = "Пользователь"
+		}
+	} else {
+		assignedByName = "Пользователь"
+	}
+
+	// Определяем due date
+	dueDate := time.Now().Add(24 * time.Hour) // по умолчанию +1 день
+	if task.DueDate != nil {
+		dueDate = *task.DueDate
+	}
+
+	// Публикуем событие
+	if err := s.producer.PublishTaskAssigned(
+		ctx,
+		task.ID,
+		task.EventID,
+		*task.AssignedTo,
+		task.Title,
+		task.Description,
+		event.Title,
+		assignedEmail,
+		assignedName,
+		task.Priority,
+		dueDate,
+		assignedBy,
+		assignedByName,
+	); err != nil {
+		s.log.Error("publishTaskAssigned: ошибка публикации", "error", err)
+	} else {
+		s.log.Info("publishTaskAssigned: событие опубликовано",
+			"task_id", task.ID,
+			"assigned_to", *task.AssignedTo,
+			"assigned_name", assignedName,
+		)
+	}
 }
