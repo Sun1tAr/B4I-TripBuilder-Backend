@@ -39,7 +39,7 @@ jobs:
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
 
       # jDoc сервисы
-      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media"]'
+      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media", "notification"]'
 
       auth_port: 9101
       auth_container_name: trip-builder-backend-auth-dev
@@ -86,7 +86,8 @@ jobs:
         "waypoint.visited", 
         "task.completed",
         "event.participant_joined",
-        "event.deleted"
+        "event.invite",
+        "task.assigned"
         ]'
 
       route_port: 9103
@@ -103,6 +104,9 @@ jobs:
 
       media_port: 9107
       media_container_name: trip-builder-backend-media-dev
+
+      notification_port: 9109
+      notification_container_name: trip-builder-backend-media-dev
 
       minio_port: 7100
       minio_console_port: 7101

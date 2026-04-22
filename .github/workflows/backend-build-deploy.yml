@@ -188,6 +188,15 @@ on:
         required: true
         type: string
 
+      notification_port:
+        description: 'Notification service port'
+        required: true
+        type: string
+      notification_container_name:
+        description: 'Notification container name'
+        required: true
+        type: string
+
 env:
   GO_VERSION: '1.26'
   REGISTRY: ghcr.io
@@ -429,6 +438,8 @@ jobs:
           MINIO_CONSOLE_PORT=${{  inputs.minio_console_port  }}
           MINIO_ROOT_USER=${{  inputs.minio_user  }}
           MINIO_ROOT_PASSWORD=${{  inputs.minio_password  }}
+          NOTIFICATION_CONTAINER_NAME =${{ inputs.notification_container_name }}
+          NOTIFICATION_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/notification:$HUMAN_TAG
           EOF"
 
       - name: Login to GHCR on server
