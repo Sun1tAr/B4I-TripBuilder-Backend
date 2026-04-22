@@ -106,7 +106,7 @@ jobs:
       media_container_name: trip-builder-backend-media-dev
 
       notification_port: 9109
-      notification_container_name: trip-builder-backend-media-dev
+      notification_container_name: trip-builder-backend-notification-dev
 
       minio_port: 7100
       minio_console_port: 7101
