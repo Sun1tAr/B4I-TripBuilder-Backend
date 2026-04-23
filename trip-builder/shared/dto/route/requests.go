@@ -4,28 +4,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateRouteRequest DTO для создания маршрута
-type CreateRouteRequest struct {
-	Title       string           `json:"title" validate:"required,min=3"`
-	Description string           `json:"description,omitempty"`
-	Country     string           `json:"country,omitempty"`
-	ImageURL    string           `json:"image_url,omitempty"`
-	IsPublic    bool             `json:"is_public"`
-	Tags        []string         `json:"tags,omitempty"`
-	Waypoints   []CreateWaypoint `json:"waypoints" validate:"required,min=1"`
-}
-
-// UpdateRouteRequest DTO для обновления маршрута
-type UpdateRouteRequest struct {
-	Title       *string          `json:"title,omitempty"`
-	Description *string          `json:"description,omitempty"`
-	Country     *string          `json:"country,omitempty"`
-	ImageURL    *string          `json:"image_url,omitempty"`
-	IsPublic    *bool            `json:"is_public,omitempty"`
-	Tags        []string         `json:"tags,omitempty"`
-	Waypoints   []UpdateWaypoint `json:"waypoints,omitempty"`
-}
-
 // CreateWaypoint DTO для создания точки маршрута
 type CreateWaypoint struct {
 	City          string  `json:"city" validate:"required"`
@@ -58,4 +36,47 @@ type ListRoutesRequest struct {
 	Tags         []string `json:"tags,omitempty"`
 	DurationFrom *int     `json:"duration_from,omitempty"`
 	DurationTo   *int     `json:"duration_to,omitempty"`
+}
+
+// CreateRouteRequest DTO для создания маршрута
+type CreateRouteRequest struct {
+	Title       string                  `json:"title" validate:"required,min=3"`
+	Description string                  `json:"description,omitempty"`
+	Country     string                  `json:"country,omitempty"`
+	ImageURL    string                  `json:"image_url,omitempty"`
+	IsPublic    bool                    `json:"is_public"`
+	Tags        []string                `json:"tags,omitempty"`
+	Waypoints   []CreateWaypoint `json:"waypoints" validate:"required,min=1"`
+	Transfers   []CreateTransferRequest `json:"transfers,omitempty"` // ← ДОЛЖНО БЫТЬ
+}
+
+// UpdateRouteRequest DTO для обновления маршрута
+type UpdateRouteRequest struct {
+	Title       *string                 `json:"title,omitempty"`
+	Description *string                 `json:"description,omitempty"`
+	Country     *string                 `json:"country,omitempty"`
+	ImageURL    *string                 `json:"image_url,omitempty"`
+	IsPublic    *bool                   `json:"is_public,omitempty"`
+	Tags        []string                `json:"tags,omitempty"`
+	Waypoints   []UpdateWaypoint `json:"waypoints,omitempty"`
+	Transfers   []UpdateTransferRequest `json:"transfers,omitempty"` // ← ДОЛЖНО БЫТЬ
+}
+
+// CreateTransferRequest DTO для создания перемещения
+type CreateTransferRequest struct {
+	FromOrderIndex  int    `json:"from_order_index" validate:"required,min=0"`
+	ToOrderIndex    int    `json:"to_order_index" validate:"required,min=0"`
+	DurationHours   int    `json:"duration_hours" validate:"min=0"`
+	DurationMinutes int    `json:"duration_minutes" validate:"min=0,max=59"`
+	TransportType   string `json:"transport_type" validate:"required,oneof=walking car moto animal water air"`
+}
+
+// UpdateTransferRequest DTO для обновления перемещения
+type UpdateTransferRequest struct {
+	ID              *uuid.UUID `json:"id,omitempty"`
+	FromOrderIndex  *int       `json:"from_order_index,omitempty"`
+	ToOrderIndex    *int       `json:"to_order_index,omitempty"`
+	DurationHours   *int       `json:"duration_hours,omitempty"`
+	DurationMinutes *int       `json:"duration_minutes,omitempty"`
+	TransportType   *string    `json:"transport_type,omitempty"`
 }

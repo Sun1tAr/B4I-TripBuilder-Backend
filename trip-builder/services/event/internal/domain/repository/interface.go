@@ -12,10 +12,11 @@ type EventRepository interface {
 	// Создание
 	Create(ctx context.Context, event *models.Event) error
 	CreateWithWaypoints(ctx context.Context, event *models.Event, waypoints []models.Waypoint) error
+	CreateWithWaypointsAndTransfers(ctx context.Context, event *models.Event, waypoints []models.Waypoint, transfers []models.EventTransfer) error // ← ДОБАВЛЯЕМ
 
 	// Получение
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Event, error)
-	GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Event, error)
+	GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Event, []models.Waypoint, []models.EventTransfer, error) // ← ОБНОВЛЯЕМ
 
 	// Списки
 	ListByUserID(ctx context.Context, userID uuid.UUID, status string, limit, offset int) ([]models.Event, int64, error)
@@ -35,8 +36,6 @@ type EventRepository interface {
 	// Вспомогательные
 	GetActiveEvents(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
 	GetPlannedEventsForActivation(ctx context.Context, beforeDate time.Time) ([]uuid.UUID, error)
-
-	// GetParticipantsStats возвращает статистику участников для списка событий
 	GetParticipantsStats(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventParticipantsStats, error)
 }
 

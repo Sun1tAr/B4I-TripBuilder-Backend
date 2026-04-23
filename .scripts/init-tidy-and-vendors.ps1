@@ -47,10 +47,5 @@ cd ..\notification
 go mod tidy
 go mod vendor
 
-Write-Host "Update Search" -ForegroundColor Green
-cd ..\search
-go mod tidy
-go mod vendor
-
 Write-Host "Back road" -ForegroundColor Green
 cd ..\..\..\.scripts

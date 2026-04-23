@@ -71,12 +71,20 @@ func main() {
 	routeRepo := postgres.NewRouteRepository(db, cfg.Database.Schema, log)
 	tagRepo := postgres.NewTagRepository(db, cfg.Database.Schema, log)
 	likeRepo := postgres.NewLikeRepository(db, cfg.Database.Schema, log)
+	transferRepo := postgres.NewTransferRepository(db, cfg.Database.Schema, log) // ← ДОБАВЛЯЕМ
 
 	// Инициализация Kafka продюсера
 	kafkaProducer := kafka.NewRouteProducer(cfg.Kafka.Brokers, log)
 
 	// Инициализация сервисов
-	routeService := service.NewRouteService(routeRepo, tagRepo, likeRepo, kafkaProducer, log)
+	routeService := service.NewRouteService(
+		routeRepo,
+		tagRepo,
+		likeRepo,
+		transferRepo, // ← ДОБАВЛЯЕМ
+		kafkaProducer,
+		log,
+	)
 
 	// Инициализация хендлеров
 	routeHandler := handlers.NewRouteHandler(routeService, log)

@@ -78,6 +78,7 @@ func main() {
 	waypointRepo := postgres.NewWaypointRepository(db, cfg.Database.Schema, log)
 	mediaRepo := postgres.NewMediaRepository(db, cfg.Database.Schema, log)
 	commentRepo := postgres.NewCommentRepository(db, cfg.Database.Schema, log)
+	transferRepo := postgres.NewEventTransferRepository(db, cfg.Database.Schema, log)
 
 	// Инициализация Redis клиента для ссылок-приглашений
 	redisClient := redis.NewClient(&redis.Options{
@@ -109,6 +110,7 @@ func main() {
 		waypointRepo,
 		mediaRepo,
 		commentRepo,
+		transferRepo, // ← ДОБАВЛЯЕМ
 		routeClient,
 		authClient,
 		userClient,
