@@ -487,24 +487,28 @@ func (s *RouteService) GetRouteByID(ctx context.Context, routeID uuid.UUID, curr
 
 // calculateTotalDuration рассчитывает общую длительность маршрута
 func (s *RouteService) calculateTotalDuration(waypoints []models.CreateWaypoint, transfers []models.CreateTransferRequest) (int, int) {
-	totalDays := 0
 	totalHours := 0
+	totalMinutes := 0
 
 	// Длительность пребывания в точках
 	for _, wp := range waypoints {
-		totalDays += wp.DurationDays
 		totalHours += wp.DurationHours
+		totalHours += wp.DurationDays * 24
 	}
 
 	// Длительность перемещений
 	for _, t := range transfers {
 		totalHours += t.DurationHours
-		totalHours += t.DurationMinutes / 60
-		totalHours += t.DurationMinutes % 60
+		totalMinutes += t.DurationMinutes
 	}
 
-	// Нормализуем
-	totalDays += totalHours / 24
+	// Добавляем минуты к часам с округлением вверх
+	if totalMinutes > 0 {
+		totalHours += (totalMinutes + 59) / 60 // округление вверх
+	}
+
+	// Нормализуем часы в дни
+	totalDays := totalHours / 24
 	totalHours = totalHours % 24
 
 	return totalDays, totalHours
@@ -512,21 +516,25 @@ func (s *RouteService) calculateTotalDuration(waypoints []models.CreateWaypoint,
 
 // calculateTotalDurationFromWaypoints рассчитывает длительность из существующих точек и перемещений
 func (s *RouteService) calculateTotalDurationFromWaypoints(waypoints []models.Waypoint, transfers []models.Transfer) (int, int) {
-	totalDays := 0
 	totalHours := 0
+	totalMinutes := 0
 
 	for _, wp := range waypoints {
-		totalDays += wp.DurationDays
 		totalHours += wp.DurationHours
+		totalHours += wp.DurationDays * 24
 	}
 
 	for _, t := range transfers {
 		totalHours += t.DurationHours
-		totalHours += t.DurationMinutes / 60
-		totalHours += t.DurationMinutes % 60
+		totalMinutes += t.DurationMinutes
 	}
 
-	totalDays += totalHours / 24
+	// Округляем минуты вверх
+	if totalMinutes > 0 {
+		totalHours += (totalMinutes + 59) / 60
+	}
+
+	totalDays := totalHours / 24
 	totalHours = totalHours % 24
 
 	return totalDays, totalHours
