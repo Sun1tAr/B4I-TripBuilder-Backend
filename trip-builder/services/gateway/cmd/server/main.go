@@ -68,6 +68,7 @@ func main() {
 
 			// Events
 			r.Get("/events/public", handlers.Proxy(cfg, "event"))
+			r.Get("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event"))
 
 			// Users (публичные профили)
 			r.Get("/users/{id}/stats", handlers.Proxy(cfg, "user"))
@@ -119,6 +120,7 @@ func main() {
 			// Routes
 			r.Post("/routes", handlers.Proxy(cfg, "route"))
 			r.Get("/routes/my", handlers.Proxy(cfg, "route"))
+			r.Get("/liked", handlers.Proxy(cfg, "route"))
 			r.Post("/routes/{id}/like", handlers.Proxy(cfg, "route"))
 			r.Get("/routes/{id}/likes", handlers.Proxy(cfg, "route"))
 			r.Put("/routes/{id}", handlers.Proxy(cfg, "route"))
@@ -130,7 +132,6 @@ func main() {
 			r.Post("/events/invites/{invite_id}/accept", handlers.Proxy(cfg, "event"))
 			r.Post("/events/invites/{invite_id}/decline", handlers.Proxy(cfg, "event"))
 			r.Post("/events/invites/new", handlers.Proxy(cfg, "event"))
-			r.Get("/events/invite-link/{link_id}", handlers.Proxy(cfg, "event"))
 			r.Post("/events/{id}/invite", handlers.Proxy(cfg, "event"))
 			r.Post("/events/{id}/join", handlers.Proxy(cfg, "event"))
 			r.Delete("/events/{id}/leave", handlers.Proxy(cfg, "event"))

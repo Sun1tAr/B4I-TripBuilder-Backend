@@ -822,3 +822,49 @@ func (s *RouteService) UpdateRoute(ctx context.Context, routeID, userID uuid.UUI
 		Transfers: transfers,
 	}, nil
 }
+
+// GetLikedRoutes возвращает маршруты, лайкнутые пользователем
+func (s *RouteService) GetLikedRoutes(ctx context.Context, userID uuid.UUID, page, size int) ([]models.RouteWithLike, int64, error) {
+	s.log.Debug("GetLikedRoutes: начало",
+		"user_id", userID,
+		"page", page,
+		"size", size,
+	)
+
+	offset := (page - 1) * size
+
+	// Получаем ID лайкнутых маршрутов
+	routeIDs, total, err := s.likeRepo.GetLikedRoutesByUserID(ctx, userID, size, offset)
+	if err != nil {
+		s.log.Error("GetLikedRoutes: ошибка получения ID", "error", err)
+		return nil, 0, err
+	}
+
+	if len(routeIDs) == 0 {
+		return []models.RouteWithLike{}, total, nil
+	}
+
+	// Получаем маршруты по ID
+	routes, err := s.routeRepo.GetByIDs(ctx, routeIDs)
+	if err != nil {
+		s.log.Error("GetLikedRoutes: ошибка получения маршрутов", "error", err)
+		return nil, 0, err
+	}
+
+	// Обогащаем информацией о лайках (все уже лайкнуты)
+	result := make([]models.RouteWithLike, len(routes))
+	for i, route := range routes {
+		result[i] = models.RouteWithLike{
+			Route:   route,
+			IsLiked: true, // точно лайкнут
+		}
+	}
+
+	s.log.Info("GetLikedRoutes: маршруты получены",
+		"user_id", userID,
+		"count", len(result),
+		"total", total,
+	)
+
+	return result, total, nil
+}

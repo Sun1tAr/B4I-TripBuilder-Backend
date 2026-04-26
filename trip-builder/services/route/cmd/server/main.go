@@ -123,6 +123,7 @@ func main() {
 
 			r.Get("/my", routeHandler.GetMyRoutes)
 			r.Post("/", routeHandler.CreateRoute)
+			r.Get("/liked", routeHandler.GetLikedRoutes)
 			r.Post("/{id}/like", routeHandler.ToggleLike)
 			r.Get("/{id}/likes", routeHandler.GetRouteLikes)
 			r.Put("/{id}", routeHandler.UpdateRoute)

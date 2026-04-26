@@ -156,6 +156,7 @@ func main() {
 		// ========== ПУБЛИЧНЫЕ МАРШРУТЫ ==========
 		r.Group(func(r chi.Router) {
 			r.Get("/public", eventHandler.GetPublicEvents)
+			r.Get("/invite-link/{link_id}", eventHandler.GetEventByInviteLink)
 		})
 
 		// ========== УСЛОВНО-ЗАКРЫТЫЕ (опциональная авторизация) ==========
@@ -187,7 +188,6 @@ func main() {
 			r.Post("/invites/{invite_id}/accept", eventHandler.AcceptInvite)
 			r.Post("/invites/{invite_id}/decline", eventHandler.DeclineInvite)
 			r.Post("/invites/new", eventHandler.CreateInviteLink)
-			r.Get("/invite-link/{link_id}", eventHandler.GetEventByInviteLink)
 
 			// Участники
 			r.Post("/{id}/invite", eventHandler.InviteParticipants)

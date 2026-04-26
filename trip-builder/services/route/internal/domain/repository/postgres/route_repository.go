@@ -715,3 +715,59 @@ func (r *RouteRepository) UpdateWithTransfers(ctx context.Context, route *models
 
 	return tx.Commit()
 }
+
+// GetByIDs возвращает маршруты по списку ID
+func (r *RouteRepository) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]models.Route, error) {
+	if len(ids) == 0 {
+		return []models.Route{}, nil
+	}
+
+	r.log.Debug("RouteRepository.GetByIDs: начало", "ids_count", len(ids))
+
+	// Строим плейсхолдеры
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, title, description, country, image_url, user_id, is_public,
+		       total_days, total_hours, likes_count, events_count, created_at, updated_at
+		FROM %s 
+		WHERE id IN (%s)
+		ORDER BY created_at DESC
+	`, r.table(), strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		r.log.Error("RouteRepository.GetByIDs: ошибка запроса", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var routes []models.Route
+	for rows.Next() {
+		var route models.Route
+		var updatedAt sql.NullTime
+
+		err := rows.Scan(
+			&route.ID, &route.Title, &route.Description, &route.Country, &route.ImageURL,
+			&route.UserID, &route.IsPublic, &route.TotalDays, &route.TotalHours,
+			&route.LikesCount, &route.EventsCount, &route.CreatedAt, &updatedAt,
+		)
+		if err != nil {
+			r.log.Error("RouteRepository.GetByIDs: ошибка сканирования", "error", err)
+			return nil, err
+		}
+
+		if updatedAt.Valid {
+			route.UpdatedAt = &updatedAt.Time
+		}
+		routes = append(routes, route)
+	}
+
+	r.log.Debug("RouteRepository.GetByIDs: получено", "count", len(routes))
+	return routes, nil
+}

@@ -731,3 +731,78 @@ func (h *RouteHandler) GetPopularRoutes(w http.ResponseWriter, r *http.Request) 
 
 	h.writeJSON(w, http.StatusOK, items)
 }
+
+// GetLikedRoutes возвращает маршруты, лайкнутые пользователем
+func (h *RouteHandler) GetLikedRoutes(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	log.Debug("GetLikedRoutes: запрос избранных маршрутов")
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size < 1 || size > 10000 {
+		size = 10000
+	}
+
+	log.Debug("GetLikedRoutes: параметры",
+		"user_id", userID,
+		"page", page,
+		"size", size,
+	)
+
+	routes, total, err := h.routeService.GetLikedRoutes(r.Context(), *userID, page, size)
+	if err != nil {
+		log.Error("Ошибка получения избранных маршрутов", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	items := make([]routedto.RouteResponse, len(routes))
+	for i, route := range routes {
+		items[i] = routedto.RouteResponse{
+			ID:          route.ID,
+			Title:       route.Title,
+			Description: route.Description,
+			Country:     route.Country,
+			ImageURL:    route.ImageURL,
+			UserID:      route.UserID,
+			IsPublic:    route.IsPublic,
+			TotalDays:   route.TotalDays,
+			TotalHours:  route.TotalHours,
+			LikesCount:  route.LikesCount,
+			EventsCount: route.EventsCount,
+			IsLiked:     route.IsLiked,
+			CreatedAt:   route.CreatedAt,
+			UpdatedAt:   route.UpdatedAt,
+		}
+	}
+
+	totalPages := (int(total) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	response := routedto.ListRoutesResponse{
+		Items:      items,
+		Total:      total,
+		Page:       page,
+		Size:       size,
+		TotalPages: totalPages,
+	}
+
+	log.Info("GetLikedRoutes: избранные маршруты получены",
+		"user_id", userID,
+		"count", len(items),
+		"total", total,
+	)
+
+	h.writeJSON(w, http.StatusOK, response)
+}
