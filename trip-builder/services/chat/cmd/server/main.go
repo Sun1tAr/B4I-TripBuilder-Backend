@@ -20,6 +20,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/websocket"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
 
@@ -130,6 +131,7 @@ func main() {
 	// Публичные health-эндпоинты
 	httpRouter.HandleFunc("/health", handlers.Health).Methods("GET")
 	httpRouter.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	httpRouter.Handle("/metrics", metrics.Handler()).Methods("GET")
 
 	// API роутер с префиксом /api/v1/chat
 	httpAPI := httpRouter.PathPrefix("/api/v1/chat").Subrouter()
@@ -146,6 +148,7 @@ func main() {
 
 	// Middleware для HTTP сервера
 	httpHandler := sharedMiddleware.RequestID(httpRouter)
+	httpHandler = sharedMiddleware.MetricsMiddleware(cfg.ServiceName, httpRouter)(httpHandler)
 	httpHandler = sharedMiddleware.Logging(log)(httpHandler)
 	httpHandler = sharedMiddleware.Recover(log)(httpHandler)
 
@@ -173,6 +176,7 @@ func main() {
 
 	// Middleware для WebSocket сервера
 	wsHandlerMiddleware := sharedMiddleware.RequestID(wsRouter)
+	wsHandlerMiddleware = sharedMiddleware.MetricsMiddleware(cfg.ServiceName, wsRouter)(wsHandlerMiddleware)
 	wsHandlerMiddleware = sharedMiddleware.Logging(log)(wsHandlerMiddleware)
 	wsHandlerMiddleware = sharedMiddleware.Recover(log)(wsHandlerMiddleware)
 

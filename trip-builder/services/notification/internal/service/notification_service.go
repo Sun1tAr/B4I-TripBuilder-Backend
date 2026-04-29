@@ -10,6 +10,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/notification/internal/email"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/notification/internal/ratelimit"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 )
 
@@ -22,6 +23,13 @@ type NotificationService struct {
 	log              *logger.Logger
 	cfg              *config.Config
 }
+
+var notifMetrics = metrics.NewBusinessMetrics("notification")
+
+var (
+	notificationsSentTotal = notifMetrics.NewCounter("notifications_sent_total", "Total notifications sent")
+	emailsSentTotal        = notifMetrics.NewCounter("emails_sent_total", "Total emails sent")
+)
 
 func NewNotificationService(
 	notificationRepo repository.NotificationRepository,
@@ -76,6 +84,7 @@ func (s *NotificationService) CreateNotification(ctx context.Context, userID uui
 		"type", notificationType,
 	)
 
+	notificationsSentTotal.Inc()
 	return notification, nil
 }
 
@@ -318,6 +327,7 @@ func (s *NotificationService) SendWelcomeEmail(ctx context.Context, userID uuid.
 		"user_id", userID,
 		"email", emailAddress,
 	)
+	emailsSentTotal.Inc()
 }
 
 // truncateString обрезает строку до указанной длины

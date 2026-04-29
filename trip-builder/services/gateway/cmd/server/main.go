@@ -13,6 +13,8 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/health"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/gateway/internal/middleware"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
+	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 )
@@ -40,6 +42,8 @@ func main() {
 	httpRouter := chi.NewRouter()
 
 	// Глобальные middleware
+	httpRouter.Use(sharedMiddleware.RequestID)
+	httpRouter.Use(sharedMiddleware.ChiMetricsMiddleware(cfg.ServiceName))
 	httpRouter.Use(middleware.Recovery(log))
 	httpRouter.Use(middleware.CORS(cfg))
 	httpRouter.Use(middleware.Logging(log))
@@ -48,6 +52,7 @@ func main() {
 	// Health эндпоинты
 	httpRouter.Get("/health", handlers.Health)
 	httpRouter.Get("/ready", handlers.Ready)
+	httpRouter.Handle("/metrics", metrics.Handler())
 
 	// API v1
 	httpRouter.Route("/api/v1", func(r chi.Router) {
@@ -120,7 +125,7 @@ func main() {
 			// Routes
 			r.Post("/routes", handlers.Proxy(cfg, "route"))
 			r.Get("/routes/my", handlers.Proxy(cfg, "route"))
-			r.Get("/liked", handlers.Proxy(cfg, "route"))
+			r.Get("/routes/liked", handlers.Proxy(cfg, "route"))
 			r.Post("/routes/{id}/like", handlers.Proxy(cfg, "route"))
 			r.Get("/routes/{id}/likes", handlers.Proxy(cfg, "route"))
 			r.Put("/routes/{id}", handlers.Proxy(cfg, "route"))
@@ -169,11 +174,6 @@ func main() {
 			r.Post("/media/upload/batch", handlers.Proxy(cfg, "media"))
 			r.Delete("/media/{id}", handlers.Proxy(cfg, "media"))
 
-			// Albums (MVP1)
-			r.Post("/albums", handlers.Proxy(cfg, "media"))
-			r.Put("/albums/{id}", handlers.Proxy(cfg, "media"))
-			r.Post("/albums/{id}/media", handlers.Proxy(cfg, "media"))
-
 			// Search
 			r.Get("/search/users", handlers.Proxy(cfg, "search"))
 
@@ -196,6 +196,8 @@ func main() {
 
 	// ========== WEBSOCKET СЕРВЕР ==========
 	wsRouter := chi.NewRouter()
+	wsRouter.Use(sharedMiddleware.RequestID)
+	wsRouter.Use(sharedMiddleware.ChiMetricsMiddleware(cfg.ServiceName))
 	wsRouter.Use(middleware.Recovery(log))
 	wsRouter.Use(middleware.CORS(cfg))
 	wsRouter.Use(middleware.Logging(log))

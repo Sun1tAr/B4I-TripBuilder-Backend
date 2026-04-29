@@ -16,6 +16,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/kafka"
 	eventdto "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/dto/event"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -32,6 +33,14 @@ var (
 	ErrInviteNotFound         = errors.New("invitation not found")
 	ErrInviteAlreadyProcessed = errors.New("invitation already processed")
 	ErrInviteLinkNotFound     = errors.New("invite link not found or expired")
+)
+
+var eventMetrics = metrics.NewBusinessMetrics("event")
+
+var (
+	eventsCreatedTotal   = eventMetrics.NewCounter("events_created_total", "Total events created")
+	eventsCompletedTotal = eventMetrics.NewCounter("events_completed_total", "Total events completed")
+	activeEvents         = eventMetrics.NewGauge("active_events", "Current active events")
 )
 
 type EventService struct {
@@ -244,6 +253,7 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 
 	allParticipants, _ := s.participantRepo.GetByEventID(ctx, eventID)
 
+	eventsCreatedTotal.Inc()
 	return &models.EventWithDetails{
 		Event: *event, Participants: allParticipants, Waypoints: waypoints, Transfers: transfers,
 	}, nil
@@ -727,6 +737,7 @@ func (s *EventService) activateEvents(ctx context.Context) error {
 	for _, eventID := range plannedEvents {
 		s.eventRepo.UpdateStatus(ctx, eventID, "active")
 	}
+	activeEvents.Set(float64(len(plannedEvents)))
 	return nil
 }
 
@@ -749,5 +760,6 @@ func (s *EventService) completeEvent(ctx context.Context, eventID uuid.UUID) err
 		countries = []string{routeData.Country}
 	}
 	s.producer.PublishEventCompleted(ctx, eventID, event.RouteID, event.OwnerID, participantIDs, countries)
+	eventsCompletedTotal.Inc()
 	return nil
 }

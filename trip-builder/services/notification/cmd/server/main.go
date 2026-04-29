@@ -20,6 +20,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/notification/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/notification/internal/worker"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
 
@@ -240,6 +241,7 @@ func main() {
 	// Публичные health-эндпоинты
 	r.HandleFunc("/health", handlers.Health).Methods("GET")
 	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	r.Handle("/metrics", metrics.Handler()).Methods("GET")
 
 	// API роутер с префиксом /api/v1/notifications
 	api := r.PathPrefix("/api/v1/notifications").Subrouter()
@@ -266,6 +268,7 @@ func main() {
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)
+	handler = sharedMiddleware.MetricsMiddleware(cfg.ServiceName, r)(handler)
 	handler = sharedMiddleware.Logging(log)(handler)
 	handler = sharedMiddleware.Recover(log)(handler)
 

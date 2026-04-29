@@ -42,17 +42,9 @@ on:
         description: 'Auth service port'
         required: true
         type: string
-      auth_container_name:
-        description: 'Auth container name'
-        required: true
-        type: string
 
       user_port:
         description: 'User service port'
-        required: true
-        type: string
-      user_container_name:
-        description: 'User container name'
         required: true
         type: string
 
@@ -64,17 +56,9 @@ on:
         description: 'Gateway service port for ws'
         required: true
         type: string
-      gateway_container_name:
-        description: 'Gateway container name'
-        required: true
-        type: string
 
       postgres_port:
         description: 'Postgres port'
-        required: true
-        type: string
-      postgres_container_name:
-        description: 'Postgres container name'
         required: true
         type: string
       postgres_user:
@@ -94,21 +78,9 @@ on:
         description: 'Redis port'
         required: true
         type: string
-      redis_container_name:
-        description: 'Redis container name'
-        required: true
-        type: string
 
-      zookeeper_container_name:
-        description: 'Zookeeper container name'
-        required: true
-        type: string
       zookeeper_port:
         description: 'Zookeeper port'
-        required: true
-        type: string
-      kafka_container_name:
-        description: 'Kafka container name'
         required: true
         type: string
       kafka_port:
@@ -125,17 +97,9 @@ on:
         description: 'Route service port'
         required: true
         type: string
-      route_container_name:
-        description: 'Route container name'
-        required: true
-        type: string
 
       event_port:
         description: 'Event service port'
-        required: true
-        type: string
-      event_container_name:
-        description: 'Event container name'
         required: true
         type: string
 
@@ -143,26 +107,14 @@ on:
         description: 'Task service port'
         required: true
         type: string
-      task_container_name:
-        description: 'Task container name'
-        required: true
-        type: string
 
       chat_port:
         description: 'Chat service port'
         required: true
         type: string
-      chat_container_name:
-        description: 'Chat container name'
-        required: true
-        type: string
 
       media_port:
         description: 'Media service port'
-        required: true
-        type: string
-      media_container_name:
-        description: 'Media container name'
         required: true
         type: string
 
@@ -173,10 +125,6 @@ on:
         type: string
       minio_console_port:
         description: 'Minio console port'
-        required: true
-        type: string
-      minio_container_name:
-        description: 'Minio container name'
         required: true
         type: string
       minio_user:
@@ -190,10 +138,6 @@ on:
 
       notification_port:
         description: 'Notification service port'
-        required: true
-        type: string
-      notification_container_name:
-        description: 'Notification container name'
         required: true
         type: string
 
@@ -398,47 +342,33 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
           CONTOUR=${{ inputs.contour }}
           AUTH_PORT=${{ inputs.auth_port }}
-          AUTH_CONTAINER_NAME=${{ inputs.auth_container_name }}
           AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:$HUMAN_TAG
           USER_PORT=${{ inputs.user_port }}
-          USER_CONTAINER_NAME=${{ inputs.user_container_name }}
           USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:$HUMAN_TAG
           GATEWAY_PORT=${{ inputs.gateway_port }}
           GATEWAY_WS_PORT=${{ inputs.gateway_ws_port }}
-          GATEWAY_CONTAINER_NAME=${{ inputs.gateway_container_name }}
           GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:$HUMAN_TAG
           POSTGRES_PORT=${{ inputs.postgres_port }}
-          POSTGRES_CONTAINER_NAME=${{ inputs.postgres_container_name }}
           POSTGRES_USER=${{ inputs.postgres_user }}
           POSTGRES_PASSWORD=${{ inputs.postgres_password }}
           POSTGRES_DB=${{ inputs.postgres_database_name }}
           REDIS_PORT=${{ inputs.redis_port }}
-          REDIS_CONTAINER_NAME=${{ inputs.redis_container_name }}
-          ZOOKEEPER_CONTAINER_NAME=${{ inputs.zookeeper_container_name }}
           ZOOKEEPER_PORT=${{ inputs.zookeeper_port }}
-          KAFKA_CONTAINER_NAME=${{ inputs.kafka_container_name }}
           KAFKA_PORT=${{ inputs.kafka_port }}
           ROUTE_PORT=${{ inputs.route_port }}
-          ROUTE_CONTAINER_NAME=${{ inputs.route_container_name }}
           ROUTE_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/route:$HUMAN_TAG
           EVENT_PORT=${{ inputs.event_port }}
-          EVENT_CONTAINER_NAME=${{ inputs.event_container_name }}
           EVENT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/event:$HUMAN_TAG
           TASK_PORT=${{ inputs.task_port }}
-          TASK_CONTAINER_NAME=${{ inputs.task_container_name }}
           TASK_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/task:$HUMAN_TAG
           CHAT_PORT=${{ inputs.chat_port }}
-          CHAT_CONTAINER_NAME=${{ inputs.chat_container_name }}
           CHAT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/chat:$HUMAN_TAG
           MEDIA_PORT=${{ inputs.media_port }}
-          MEDIA_CONTAINER_NAME=${{ inputs.media_container_name }}
           MEDIA_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/media:$HUMAN_TAG
-          MINIO_CONTAINER_NAME=${{  inputs.minio_container_name }}
           MINIO_PORT=${{  inputs.minio_port  }}
           MINIO_CONSOLE_PORT=${{  inputs.minio_console_port  }}
           MINIO_ROOT_USER=${{  inputs.minio_user  }}
           MINIO_ROOT_PASSWORD=${{  inputs.minio_password  }}
-          NOTIFICATION_CONTAINER_NAME =${{ inputs.notification_container_name }}
           NOTIFICATION_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/notification:$HUMAN_TAG
           EOF"
 
@@ -475,7 +405,7 @@ jobs:
           
             # Проверяем готовность Kafka
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              if docker exec ${{ inputs.kafka_container_name }} kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+              if docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
                 echo "✅ Kafka is ready after $(($RETRY_COUNT * 10)) seconds!"
                 break
               fi
@@ -488,14 +418,14 @@ jobs:
             # Если Kafka не готова после всех попыток - падаем
             if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
               echo "❌ Kafka failed to start within 10 minutes!"
-              docker logs ${{ inputs.kafka_container_name }} --tail 50
+              docker logs kafka --tail 50
               exit 1
             fi
 
             # Создаём топики
             for topic in $(echo '${{ inputs.kafka_topics }}' | jq -r '.[]'); do
               echo "Creating topic: $topic"
-              docker exec ${{ inputs.kafka_container_name }} kafka-topics \
+              docker exec kafka kafka-topics \
                 --bootstrap-server localhost:9092 \
                 --create \
                 --if-not-exists \
@@ -505,7 +435,7 @@ jobs:
             done
 
             echo "=== Available topics ==="
-            docker exec ${{ inputs.kafka_container_name }} kafka-topics --bootstrap-server localhost:9092 --list
+            docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
           EOF
 
   configure-nginx:

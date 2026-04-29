@@ -17,11 +17,11 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: ${POSTGRES_CONTAINER_NAME:-trip-builder-backend-postgres}
+    container_name: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-trip-builder}
+      POSTGRES_DB: ${POSTGRES_DB:-trip-builder} # fixme
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -39,7 +39,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: ${REDIS_CONTAINER_NAME:-trip-builder-backend-redis}
+    container_name: redis
     networks:
       - trip-builder-network
     healthcheck:
@@ -51,7 +51,7 @@ services:
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
-    container_name: ${ZOOKEEPER_CONTAINER_NAME:-trip-builder-backend-zookeeper}
+    container_name: zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_PORT:-2181}
       ZOOKEEPER_TICK_TIME: 2000
@@ -68,13 +68,13 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: ${KAFKA_CONTAINER_NAME:-trip-builder-backend-kafka}
+    container_name: kafka
     depends_on:
       - zookeeper
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_PORT:-2181}
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${KAFKA_CONTAINER_NAME:-trip-builder-backend-kafka}:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
 
@@ -104,7 +104,7 @@ services:
       context: services/auth/
       dockerfile: Dockerfile
     image: ${AUTH_IMAGE:-trip-builder-auth:local}
-    container_name: ${AUTH_CONTAINER_NAME:-trip-builder-backend-auth}
+    container_name: trip-builder-backend-auth
     env_file:
       - services/auth/.env
     networks:
@@ -121,7 +121,7 @@ services:
       context: services/user/
       dockerfile: Dockerfile
     image: ${USER_IMAGE:-trip-builder-user:local}
-    container_name: ${USER_CONTAINER_NAME:-trip-builder-backend-user}
+    container_name: trip-builder-backend-user
     env_file:
       - services/user/.env
     networks:
@@ -136,7 +136,7 @@ services:
       context: services/gateway/
       dockerfile: Dockerfile
     image: ${GATEWAY_IMAGE:-trip-builder-gateway:local}
-    container_name: ${GATEWAY_CONTAINER_NAME:-trip-builder-backend-gateway}
+    container_name: trip-builder-backend-gateway
     env_file:
       - services/gateway/.env
     ports:
@@ -154,7 +154,7 @@ services:
       context: services/route/
       dockerfile: Dockerfile
     image: ${ROUTE_IMAGE:-trip-builder-route:local}
-    container_name: ${ROUTE_CONTAINER_NAME:-trip-builder-backend-route}
+    container_name: trip-builder-backend-route
     env_file:
       - services/route/.env
     networks:
@@ -169,7 +169,7 @@ services:
       context: services/event/
       dockerfile: Dockerfile
     image: ${EVENT_IMAGE:-trip-builder-event:local}
-    container_name: ${EVENT_CONTAINER_NAME:-trip-builder-backend-event}
+    container_name: trip-builder-backend-event
     env_file:
       - services/event/.env
     networks:
@@ -184,7 +184,7 @@ services:
       context: services/task/
       dockerfile: Dockerfile
     image: ${TASK_IMAGE:-trip-builder-task:local}
-    container_name: ${TASK_CONTAINER_NAME:-trip-builder-backend-task}
+    container_name: trip-builder-backend-task
     env_file:
       - services/task/.env
     networks:
@@ -199,7 +199,7 @@ services:
       context: services/chat/
       dockerfile: Dockerfile
     image: ${CHAT_IMAGE:-trip-builder-chat:local}
-    container_name: ${CHAT_CONTAINER_NAME:-trip-builder-backend-chat}
+    container_name: trip-builder-backend-chat
     env_file:
       - services/chat/.env
     networks:
@@ -214,7 +214,7 @@ services:
       context: services/media/
       dockerfile: Dockerfile
     image: ${MEDIA_IMAGE:-trip-builder-media:local}
-    container_name: ${MEDIA_CONTAINER_NAME:-trip-builder-backend-media}
+    container_name: trip-builder-backend-media
     env_file:
       - services/media/.env
     networks:
@@ -226,13 +226,13 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: ${MINIO_CONTAINER_NAME:-trip-builder-backend-minio}
+    container_name: minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data_${CONTOUR:-local}:/data
+      - minio_data_${CONTOUR:-local}:/data # fixme
     networks:
       - trip-builder-network
     healthcheck:
@@ -247,7 +247,7 @@ services:
       context: services/notification/
       dockerfile: Dockerfile
     image: ${NOTIFICATION_IMAGE:-trip-builder-notification:local}
-    container_name: ${NOTIFICATION_CONTAINER_NAME:-trip-builder-backend-notification}
+    container_name: trip-builder-backend-notification
     env_file:
       - services/notification/.env
     networks:
@@ -272,20 +272,30 @@ services:
 #      - trip-builder-network
 #    restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090" # fixme
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge
 
 volumes:
-  postgres_data_local:
+  postgres_data_local: # fixme
     driver: local
-  postgres_data_development:
+  minio_data_local:  # fixme
     driver: local
-  postgres_data_production:
-    driver: local
-  minio_data_local:
-    driver: local
-  minio_data_development:
-    driver: local
-  minio_data_production:
+  prometheus_data:
     driver: local

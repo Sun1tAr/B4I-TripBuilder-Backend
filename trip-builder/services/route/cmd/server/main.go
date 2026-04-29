@@ -17,6 +17,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
 
@@ -71,20 +72,13 @@ func main() {
 	routeRepo := postgres.NewRouteRepository(db, cfg.Database.Schema, log)
 	tagRepo := postgres.NewTagRepository(db, cfg.Database.Schema, log)
 	likeRepo := postgres.NewLikeRepository(db, cfg.Database.Schema, log)
-	transferRepo := postgres.NewTransferRepository(db, cfg.Database.Schema, log) // ← ДОБАВЛЯЕМ
+	transferRepo := postgres.NewTransferRepository(db, cfg.Database.Schema, log)
 
 	// Инициализация Kafka продюсера
 	kafkaProducer := kafka.NewRouteProducer(cfg.Kafka.Brokers, log)
 
 	// Инициализация сервисов
-	routeService := service.NewRouteService(
-		routeRepo,
-		tagRepo,
-		likeRepo,
-		transferRepo, // ← ДОБАВЛЯЕМ
-		kafkaProducer,
-		log,
-	)
+	routeService := service.NewRouteService(routeRepo, tagRepo, likeRepo, transferRepo, kafkaProducer, log)
 
 	// Инициализация хендлеров
 	routeHandler := handlers.NewRouteHandler(routeService, log)
@@ -94,12 +88,14 @@ func main() {
 
 	// Глобальные middleware
 	r.Use(sharedMiddleware.RequestID)
+	r.Use(sharedMiddleware.ChiMetricsMiddleware(cfg.ServiceName))
 	r.Use(sharedMiddleware.Logging(log))
 	r.Use(sharedMiddleware.Recover(log))
 
 	// Публичные health-эндпоинты
 	r.Get("/health", handlers.Health)
 	r.Get("/ready", handlers.Ready)
+	r.Handle("/metrics", metrics.Handler())
 
 	// API роутер с префиксом /api/v1/routes
 	r.Route("/api/v1/routes", func(r chi.Router) {

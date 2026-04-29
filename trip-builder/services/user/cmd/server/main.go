@@ -24,6 +24,7 @@ import (
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/retry"
 
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -164,6 +165,7 @@ func main() {
 	// Публичные health-эндпоинты
 	r.HandleFunc("/health", handlers.Health).Methods("GET")
 	r.HandleFunc("/ready", handlers.Ready).Methods("GET")
+	r.Handle("/metrics", metrics.Handler()).Methods("GET")
 
 	// API роутер с префиксом /api/v1/users
 	api := r.PathPrefix("/api/v1/users").Subrouter()
@@ -190,6 +192,7 @@ func main() {
 
 	// Общие middleware
 	handler := sharedMiddleware.RequestID(r)
+	handler = sharedMiddleware.MetricsMiddleware(cfg.ServiceName, r)(handler)
 	handler = sharedMiddleware.Logging(log)(handler)
 	handler = sharedMiddleware.Recover(log)(handler)
 

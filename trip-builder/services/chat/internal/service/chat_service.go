@@ -11,6 +11,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/redis"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 )
 
@@ -19,6 +20,12 @@ var (
 	ErrNotAuthorized      = errors.New("not authorized")
 	ErrNotParticipant     = errors.New("user is not a participant of this event")
 	ErrInvalidMessageType = errors.New("invalid message type")
+)
+
+var chatMetrics = metrics.NewBusinessMetrics("chat")
+
+var (
+	messagesSentTotal = chatMetrics.NewCounter("messages_sent_total", "Total messages sent")
 )
 
 type ChatService struct {
@@ -78,6 +85,7 @@ func (s *ChatService) SaveMessage(ctx context.Context, eventID, userID uuid.UUID
 	}
 
 	s.log.Info("SaveMessage: сообщение сохранено", "message_id", msg.ID, "event_id", eventID)
+	messagesSentTotal.Inc()
 	return msg, nil
 }
 

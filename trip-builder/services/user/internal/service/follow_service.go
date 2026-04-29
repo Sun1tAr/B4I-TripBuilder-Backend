@@ -6,12 +6,19 @@ import (
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/user/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 )
 
 var (
 	ErrAlreadyFollowing = errors.New("already following")
 	ErrNotFollowing     = errors.New("not following")
+)
+
+var userMetrics = metrics.NewBusinessMetrics("user")
+
+var (
+	userFollowsTotal = userMetrics.NewCounter("user_follows_total", "Total follow/unfollow actions")
 )
 
 type FollowService struct {
@@ -86,6 +93,7 @@ func (s *FollowService) Follow(ctx context.Context, followerID, followeeID uuid.
 	go s.achievementSvc.CheckAndAward(context.Background(), followeeID, "followers", 0)
 
 	s.log.Info("Подписка оформлена", "follower_id", followerID, "followee_id", followeeID)
+	userFollowsTotal.Inc()
 	return nil
 }
 
@@ -124,6 +132,7 @@ func (s *FollowService) Unfollow(ctx context.Context, followerID, followeeID uui
 	}
 
 	s.log.Info("Отписка оформлена", "follower_id", followerID, "followee_id", followeeID)
+	userFollowsTotal.Inc()
 	return nil
 }
 

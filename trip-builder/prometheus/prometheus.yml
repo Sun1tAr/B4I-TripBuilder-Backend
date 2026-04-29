@@ -1,0 +1,41 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: 'auth'
+    static_configs:
+      - targets: ['trip-builder-backend-auth:8081']
+
+  - job_name: 'user'
+    static_configs:
+      - targets: ['trip-builder-backend-user:8082']
+
+  - job_name: 'route'
+    static_configs:
+      - targets: ['trip-builder-backend-route:8083']
+
+  - job_name: 'event'
+    static_configs:
+      - targets: ['trip-builder-backend-event:8084']
+
+  - job_name: 'task'
+    static_configs:
+      - targets: ['trip-builder-backend-task:8085']
+
+  - job_name: 'chat'
+    static_configs:
+      - targets: ['trip-builder-backend-chat:8086']
+
+  - job_name: 'media'
+    static_configs:
+      - targets: ['trip-builder-backend-media:8087']
+
+  - job_name: 'notification'
+    static_configs:
+      - targets: ['trip-builder-backend-notification:8089']
+
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['trip-builder-backend-gateway:8090']

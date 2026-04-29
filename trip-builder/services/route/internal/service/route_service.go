@@ -11,6 +11,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/domain/repository/postgres"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/route/internal/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 )
 
@@ -20,6 +21,13 @@ var (
 	ErrInvalidWaypoints   = errors.New("route must have at least one waypoint")
 	ErrTitleTooShort      = errors.New("title must be at least 3 characters")
 	ErrInvalidCoordinates = errors.New("invalid coordinates")
+)
+
+var routeMetrics = metrics.NewBusinessMetrics("route")
+
+var (
+	routesCreatedTotal = routeMetrics.NewCounter("routes_created_total", "Total routes created")
+	routesLikesTotal   = routeMetrics.NewCounter("routes_likes_total", "Total route likes")
 )
 
 type RouteService struct {
@@ -123,6 +131,7 @@ func (s *RouteService) ToggleLike(ctx context.Context, routeID, userID uuid.UUID
 	}
 
 	s.log.Info("Лайк переключён", "route_id", routeID, "user_id", userID, "now_liked", !isLiked, "count", count)
+	routesLikesTotal.Inc()
 	return !isLiked, count, nil
 }
 
@@ -432,6 +441,7 @@ func (s *RouteService) CreateRoute(ctx context.Context, userID uuid.UUID, req *m
 		"transfers", len(transfers),
 	)
 
+	routesCreatedTotal.Inc()
 	return &models.RouteWithDetails{
 		Route:     *route,
 		Waypoints: waypoints,
