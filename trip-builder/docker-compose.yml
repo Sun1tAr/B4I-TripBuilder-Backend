@@ -219,7 +219,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data:/data # fixme
+      - minio_data:/data
     networks:
       - trip-builder-network
     healthcheck:
@@ -270,7 +270,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
     ports:
-      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090" # fixme
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     networks:
       - trip-builder-network
     restart: unless-stopped
