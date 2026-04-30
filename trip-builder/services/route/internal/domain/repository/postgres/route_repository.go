@@ -13,16 +13,18 @@ import (
 )
 
 type RouteRepository struct {
-	db     *sql.DB
-	schema string
-	log    *logger.Logger
+	db           *sql.DB
+	schema       string
+	transferRepo *TransferRepository // ← ДОБАВЛЯЕМ
+	log          *logger.Logger
 }
 
 func NewRouteRepository(db *sql.DB, schema string, log *logger.Logger) *RouteRepository {
 	return &RouteRepository{
-		db:     db,
-		schema: schema,
-		log:    log,
+		db:           db,
+		schema:       schema,
+		transferRepo: NewTransferRepository(db, schema, log), // ← ДОБАВЛЯЕМ
+		log:          log,
 	}
 }
 
@@ -116,50 +118,6 @@ func (r *RouteRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Ro
 	}
 
 	return route, nil
-}
-
-func (r *RouteRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Route, []models.Waypoint, error) {
-	// Получаем маршрут
-	route, err := r.GetByID(ctx, id)
-	if err != nil || route == nil {
-		return route, nil, err
-	}
-
-	// Получаем точки
-	waypointsQuery := fmt.Sprintf(`
-		SELECT id, route_id, city, description, latitude, longitude,
-		       duration_days, duration_hours, order_index, created_at, updated_at
-		FROM %s WHERE route_id = $1 ORDER BY order_index
-	`, r.waypointsTable())
-
-	rows, err := r.db.QueryContext(ctx, waypointsQuery, id)
-	if err != nil {
-		r.log.Error("RouteRepository.GetByIDWithDetails: ошибка получения точек", "error", err, "route_id", id)
-		return route, nil, err
-	}
-	defer rows.Close()
-
-	var waypoints []models.Waypoint
-	for rows.Next() {
-		var wp models.Waypoint
-		var updatedAt sql.NullTime
-
-		err := rows.Scan(
-			&wp.ID, &wp.RouteID, &wp.City, &wp.Description, &wp.Latitude, &wp.Longitude,
-			&wp.DurationDays, &wp.DurationHours, &wp.OrderIndex, &wp.CreatedAt, &updatedAt,
-		)
-		if err != nil {
-			r.log.Error("RouteRepository.GetByIDWithDetails: ошибка сканирования", "error", err)
-			return route, nil, err
-		}
-
-		if updatedAt.Valid {
-			wp.UpdatedAt = &updatedAt.Time
-		}
-		waypoints = append(waypoints, wp)
-	}
-
-	return route, waypoints, nil
 }
 
 // ListPublic возвращает публичные маршруты с фильтрацией и пагинацией
@@ -552,4 +510,264 @@ func (r *RouteRepository) IncrementEventsCount(ctx context.Context, routeID uuid
 		return err
 	}
 	return nil
+}
+
+// CreateWithWaypoints создаёт маршрут, точки и перемещения в одной транзакции
+func (r *RouteRepository) CreateWithWaypoints(ctx context.Context, route *models.Route, waypoints []models.Waypoint, transfers []models.Transfer) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		r.log.Error("RouteRepository.CreateWithWaypoints: ошибка начала транзакции", "error", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	// Вставляем маршрут
+	routeQuery := fmt.Sprintf(`
+		INSERT INTO %s (id, title, description, country, image_url, user_id, is_public, 
+		                total_days, total_hours, likes_count, events_count, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, r.table())
+
+	_, err = tx.ExecContext(ctx, routeQuery,
+		route.ID, route.Title, route.Description, route.Country, route.ImageURL,
+		route.UserID, route.IsPublic, route.TotalDays, route.TotalHours,
+		route.LikesCount, route.EventsCount, route.CreatedAt,
+	)
+	if err != nil {
+		r.log.Error("RouteRepository.CreateWithWaypoints: ошибка вставки маршрута", "error", err)
+		return err
+	}
+
+	// Вставляем точки маршрута
+	if len(waypoints) > 0 {
+		waypointQuery := fmt.Sprintf(`
+			INSERT INTO %s (id, route_id, city, description, latitude, longitude, 
+			                duration_days, duration_hours, order_index, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, r.waypointsTable())
+
+		for _, wp := range waypoints {
+			_, err = tx.ExecContext(ctx, waypointQuery,
+				wp.ID, wp.RouteID, wp.City, wp.Description, wp.Latitude, wp.Longitude,
+				wp.DurationDays, wp.DurationHours, wp.OrderIndex, wp.CreatedAt,
+			)
+			if err != nil {
+				r.log.Error("RouteRepository.CreateWithWaypoints: ошибка вставки точки", "error", err)
+				return err
+			}
+		}
+	}
+
+	// Вставляем перемещения
+	if len(transfers) > 0 {
+		transferQuery := fmt.Sprintf(`
+			INSERT INTO %s (id, route_id, from_waypoint_id, to_waypoint_id, 
+			                duration_hours, duration_minutes, transport_type, order_index, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, r.transferRepo.table())
+
+		for _, transfer := range transfers {
+			_, err = tx.ExecContext(ctx, transferQuery,
+				transfer.ID, transfer.RouteID, transfer.FromWaypointID, transfer.ToWaypointID,
+				transfer.DurationHours, transfer.DurationMinutes, transfer.TransportType,
+				transfer.OrderIndex, transfer.CreatedAt,
+			)
+			if err != nil {
+				r.log.Error("RouteRepository.CreateWithWaypoints: ошибка вставки перемещения", "error", err)
+				return err
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		r.log.Error("RouteRepository.CreateWithWaypoints: ошибка коммита", "error", err)
+		return err
+	}
+
+	r.log.Info("RouteRepository.CreateWithWaypoints: маршрут, точки и перемещения созданы",
+		"route_id", route.ID,
+		"waypoints_count", len(waypoints),
+		"transfers_count", len(transfers),
+	)
+
+	return nil
+}
+
+// GetByIDWithDetails получает маршрут с точками и перемещениями
+func (r *RouteRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Route, []models.Waypoint, []models.Transfer, error) {
+	route, waypoints, err := r.getByIDWithWaypoints(ctx, id)
+	if err != nil || route == nil {
+		return route, waypoints, nil, err
+	}
+
+	// Получаем перемещения
+	transfers, err := r.transferRepo.GetByRouteID(ctx, id)
+	if err != nil {
+		r.log.Error("RouteRepository.GetByIDWithDetails: ошибка получения перемещений", "error", err)
+		return route, waypoints, nil, err
+	}
+
+	return route, waypoints, transfers, nil
+}
+
+// getByIDWithWaypoints — вспомогательный метод (рефакторинг существующего GetByIDWithDetails)
+func (r *RouteRepository) getByIDWithWaypoints(ctx context.Context, id uuid.UUID) (*models.Route, []models.Waypoint, error) {
+	// Получаем маршрут
+	route, err := r.GetByID(ctx, id)
+	if err != nil || route == nil {
+		return route, nil, err
+	}
+
+	// Получаем точки
+	waypointsQuery := fmt.Sprintf(`
+		SELECT id, route_id, city, description, latitude, longitude,
+		       duration_days, duration_hours, order_index, created_at, updated_at
+		FROM %s WHERE route_id = $1 ORDER BY order_index
+	`, r.waypointsTable())
+
+	rows, err := r.db.QueryContext(ctx, waypointsQuery, id)
+	if err != nil {
+		r.log.Error("RouteRepository.getByIDWithWaypoints: ошибка получения точек", "error", err)
+		return route, nil, err
+	}
+	defer rows.Close()
+
+	var waypoints []models.Waypoint
+	for rows.Next() {
+		var wp models.Waypoint
+		var updatedAt sql.NullTime
+
+		err := rows.Scan(
+			&wp.ID, &wp.RouteID, &wp.City, &wp.Description, &wp.Latitude, &wp.Longitude,
+			&wp.DurationDays, &wp.DurationHours, &wp.OrderIndex, &wp.CreatedAt, &updatedAt,
+		)
+		if err != nil {
+			r.log.Error("RouteRepository.getByIDWithWaypoints: ошибка сканирования", "error", err)
+			return route, nil, err
+		}
+
+		if updatedAt.Valid {
+			wp.UpdatedAt = &updatedAt.Time
+		}
+		waypoints = append(waypoints, wp)
+	}
+
+	return route, waypoints, nil
+}
+
+// UpdateWithTransfers обновляет маршрут, точки и перемещения в одной транзакции
+func (r *RouteRepository) UpdateWithTransfers(ctx context.Context, route *models.Route, waypoints []models.Waypoint, transfers []models.Transfer) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		r.log.Error("RouteRepository.UpdateWithTransfers: ошибка начала транзакции", "error", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	// Обновляем маршрут
+	routeQuery := fmt.Sprintf(`
+		UPDATE %s SET title = $1, description = $2, country = $3, image_url = $4,
+			is_public = $5, total_days = $6, total_hours = $7, updated_at = NOW()
+		WHERE id = $8
+	`, r.table())
+
+	_, err = tx.ExecContext(ctx, routeQuery,
+		route.Title, route.Description, route.Country, route.ImageURL,
+		route.IsPublic, route.TotalDays, route.TotalHours, route.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Удаляем старые точки
+	deleteWaypointsQuery := fmt.Sprintf("DELETE FROM %s WHERE route_id = $1", r.waypointsTable())
+	tx.ExecContext(ctx, deleteWaypointsQuery, route.ID)
+
+	// Вставляем новые точки
+	if len(waypoints) > 0 {
+		waypointQuery := fmt.Sprintf(`
+			INSERT INTO %s (id, route_id, city, description, latitude, longitude, 
+			                duration_days, duration_hours, order_index, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, r.waypointsTable())
+		for _, wp := range waypoints {
+			tx.ExecContext(ctx, waypointQuery, wp.ID, wp.RouteID, wp.City, wp.Description,
+				wp.Latitude, wp.Longitude, wp.DurationDays, wp.DurationHours, wp.OrderIndex, wp.CreatedAt)
+		}
+	}
+
+	// Удаляем старые перемещения
+	deleteTransfersQuery := fmt.Sprintf("DELETE FROM %s WHERE route_id = $1", r.transferRepo.table())
+	tx.ExecContext(ctx, deleteTransfersQuery, route.ID)
+
+	// Вставляем новые перемещения
+	if len(transfers) > 0 {
+		transferQuery := fmt.Sprintf(`
+			INSERT INTO %s (id, route_id, from_waypoint_id, to_waypoint_id, 
+			                duration_hours, duration_minutes, transport_type, order_index, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, r.transferRepo.table())
+		for _, t := range transfers {
+			tx.ExecContext(ctx, transferQuery, t.ID, t.RouteID, t.FromWaypointID, t.ToWaypointID,
+				t.DurationHours, t.DurationMinutes, t.TransportType, t.OrderIndex, t.CreatedAt)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetByIDs возвращает маршруты по списку ID
+func (r *RouteRepository) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]models.Route, error) {
+	if len(ids) == 0 {
+		return []models.Route{}, nil
+	}
+
+	r.log.Debug("RouteRepository.GetByIDs: начало", "ids_count", len(ids))
+
+	// Строим плейсхолдеры
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, title, description, country, image_url, user_id, is_public,
+		       total_days, total_hours, likes_count, events_count, created_at, updated_at
+		FROM %s 
+		WHERE id IN (%s)
+		ORDER BY created_at DESC
+	`, r.table(), strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		r.log.Error("RouteRepository.GetByIDs: ошибка запроса", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var routes []models.Route
+	for rows.Next() {
+		var route models.Route
+		var updatedAt sql.NullTime
+
+		err := rows.Scan(
+			&route.ID, &route.Title, &route.Description, &route.Country, &route.ImageURL,
+			&route.UserID, &route.IsPublic, &route.TotalDays, &route.TotalHours,
+			&route.LikesCount, &route.EventsCount, &route.CreatedAt, &updatedAt,
+		)
+		if err != nil {
+			r.log.Error("RouteRepository.GetByIDs: ошибка сканирования", "error", err)
+			return nil, err
+		}
+
+		if updatedAt.Valid {
+			route.UpdatedAt = &updatedAt.Time
+		}
+		routes = append(routes, route)
+	}
+
+	r.log.Debug("RouteRepository.GetByIDs: получено", "count", len(routes))
+	return routes, nil
 }

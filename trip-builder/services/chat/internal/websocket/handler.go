@@ -10,9 +10,16 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/redis"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/chat/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+)
+
+var chatMetrics = metrics.NewBusinessMetrics("chat")
+
+var (
+	activeConnections = chatMetrics.NewGauge("active_connections", "Current active WebSocket connections")
 )
 
 type WSHandler struct {
@@ -53,64 +60,53 @@ func NewWSHandler(hub *Hub, chatService *service.ChatService, redisPubSub *redis
 
 // ServeWS обрабатывает WebSocket подключение
 func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	// Сначала пробуем из заголовка (от gateway)
-	userIDStr := r.Header.Get("X-User-ID")
 
-	// Если нет, пробуем из query-параметра (от браузера)
+	userIDStr := r.Header.Get("X-User-ID")
 	if userIDStr == "" {
 		userIDStr = r.URL.Query().Get("user_id")
 	}
-
 	if userIDStr == "" {
-		h.log.Error("WebSocket: user_id не найден ни в заголовке, ни в query")
+		activeConnections.Dec()
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		h.log.Error("WebSocket: неверный user_id", "error", err)
+		activeConnections.Dec()
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
-	// Получаем event_id из URL
 	vars := mux.Vars(r)
 	eventIDStr := vars["event_id"]
 	if eventIDStr == "" {
-		h.log.Error("WebSocket: event_id не указан")
+		activeConnections.Dec()
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	eventID, err := uuid.Parse(eventIDStr)
 	if err != nil {
-		h.log.Error("WebSocket: неверный event_id", "error", err)
+		activeConnections.Dec()
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	// Проверяем, что пользователь участник события
 	isParticipant, err := h.chatService.IsEventParticipant(r.Context(), eventID, userID)
-	if err != nil {
-		h.log.Error("WebSocket: ошибка проверки участника", "error", err)
-		return
-	}
-	if !isParticipant {
-		h.log.Warn("WebSocket: пользователь не участник события", "user_id", userID, "event_id", eventID)
+	if err != nil || !isParticipant {
+		activeConnections.Dec()
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		h.log.Error("WebSocket: ошибка апгрейда", "error", err)
+		activeConnections.Dec()
 		return
 	}
-	defer func() {
-		h.log.Info("WebSocket: соединение закрыто", "user_id", userID, "event_id", eventID)
-		conn.Close()
-	}()
+	activeConnections.Inc()
+	h.log.Debug("WebSocket: соединение установлено", "user_id", userID)
 
 	clientID := uuid.New().String()
 	client := &Client{
@@ -121,46 +117,50 @@ func (h *WSHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		RoomID: eventID,
 	}
 
-	// Сохраняем комнату клиента
 	h.clientsMu.Lock()
 	h.clientRoom[clientID] = eventID
 	h.clientsMu.Unlock()
 
-	// Регистрируем клиента в Hub
 	h.hub.register <- client
+	defer func() {
+		h.hub.unregister <- client
+	}()
 
-	// Отправляем последние 50 сообщений
 	go h.sendRecentMessages(conn, eventID)
 
-	// Подписываемся на Redis канал комнаты для получения новых сообщений
 	ctx := context.Background()
 	pubsub, err := h.redisPubSub.Subscribe(ctx, eventID)
 	if err != nil {
-		h.log.Error("WebSocket: ошибка подписки на Redis", "error", err)
 		return
 	}
 	defer pubsub.Close()
 
-	// Канал для получения сообщений из Redis
 	redisCh := pubsub.Channel()
-
-	// Горoutine для отправки сообщений из Redis клиенту
 	go func() {
 		for msg := range redisCh {
 			select {
 			case client.Send <- []byte(msg.Payload):
 			default:
-				h.log.Warn("WebSocket: канал клиента переполнен", "client_id", clientID)
 				return
 			}
 		}
 	}()
 
-	// Запускаем чтение сообщений (от клиента)
+	// Запускаем readPump и writePump в горутинах
 	go h.readPump(conn, client, eventID, userID)
 
-	// Запускаем запись сообщений (клиенту) – этот метод читает из client.Send
-	h.writePump(conn, client)
+	done := make(chan struct{})
+	go func() {
+		h.writePump(conn, client)
+		close(done)
+	}()
+
+	// Ждем завершения writePump
+	<-done
+
+	conn.Close()
+	activeConnections.Dec()
+	h.log.Debug("WebSocket: соединение закрыто", "user_id", userID, "event_id", eventID)
 }
 
 // sendRecentMessages отправляет последние сообщения
@@ -183,7 +183,6 @@ func (h *WSHandler) sendRecentMessages(conn *websocket.Conn, eventID uuid.UUID) 
 func (h *WSHandler) readPump(conn *websocket.Conn, client *Client, eventID, userID uuid.UUID) {
 	defer func() {
 		h.hub.unregister <- client
-		conn.Close()
 	}()
 
 	for {
@@ -229,19 +228,19 @@ func (h *WSHandler) writePump(conn *websocket.Conn, client *Client) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
-		conn.Close()
 	}()
 
 	for {
 		select {
 		case message, ok := <-client.Send:
-			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				// Канал закрыт хабом — просто выходим, не шлем CloseMessage
 				return
 			}
-
-			conn.WriteMessage(websocket.TextMessage, message)
+			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
 
 		case <-ticker.C:
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))

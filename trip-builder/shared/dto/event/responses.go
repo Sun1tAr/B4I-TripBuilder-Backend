@@ -31,12 +31,6 @@ type EventParticipantsStatsDTO struct {
 	TotalParticipants int `json:"total_participants"`
 }
 
-// EventDetailResponse DTO для детальной информации о поездке
-type EventDetailResponse struct {
-	EventResponse
-	Participants []ParticipantResponse `json:"participants"`
-	Waypoints    []WaypointResponse    `json:"waypoints"`
-}
 
 // ParticipantResponse DTO для участника
 type ParticipantResponse struct {

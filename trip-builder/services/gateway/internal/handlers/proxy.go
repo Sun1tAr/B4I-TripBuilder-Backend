@@ -89,7 +89,7 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 		var targetURL string
 		switch serviceName {
 		case "chat":
-			targetURL = cfg.Services.ChatWSURL // Используем WS URL
+			targetURL = cfg.Services.ChatWSURL
 		default:
 			WriteError(w, http.StatusInternalServerError, "unknown service for websocket", serviceName)
 			return
@@ -114,12 +114,11 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 			return
 		}
 
-		// Строим целевой URL (уже WS, не нужно заменять http:// на ws://)
+		// Строим целевой URL
 		wsURL := targetURL + r.URL.Path
 		if r.URL.RawQuery != "" {
 			wsURL += "?" + r.URL.RawQuery
 		}
-		// Убираем token из query
 		wsURL = strings.Replace(wsURL, "token="+token, "", -1)
 		wsURL = strings.TrimSuffix(wsURL, "?&")
 		wsURL = strings.TrimSuffix(wsURL, "&?")
@@ -136,42 +135,61 @@ func WebSocketProxy(cfg *config.Config, serviceName string) http.HandlerFunc {
 			WriteError(w, http.StatusBadGateway, "failed to connect to upstream", err.Error())
 			return
 		}
-		defer targetConn.Close()
 
 		clientConn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error("WebSocketProxy: ошибка апгрейда", "error", err)
+			targetConn.Close()
 			return
 		}
-		defer clientConn.Close()
 
-		// Проксирование сообщений
+		log.Info("WebSocketProxy: оба соединения установлены", "user_id", userID)
+
+		// Канал для отслеживания завершения
+		done := make(chan struct{})
+
+		// Клиент → Chat
 		go func() {
+			defer func() {
+				log.Info("WebSocketProxy: client→target горутина завершена", "user_id", userID)
+				close(done)
+			}()
 			for {
 				msgType, msg, err := clientConn.ReadMessage()
 				if err != nil {
+					log.Debug("WebSocketProxy: клиент отключился", "error", err, "user_id", userID)
 					return
 				}
 				if err := targetConn.WriteMessage(msgType, msg); err != nil {
+					log.Debug("WebSocketProxy: ошибка отправки в target", "error", err, "user_id", userID)
 					return
 				}
 			}
 		}()
 
+		// Chat → Клиент
 		go func() {
 			for {
 				msgType, msg, err := targetConn.ReadMessage()
 				if err != nil {
+					log.Debug("WebSocketProxy: target отключился", "error", err, "user_id", userID)
 					return
 				}
 				if err := clientConn.WriteMessage(msgType, msg); err != nil {
+					log.Debug("WebSocketProxy: ошибка отправки клиенту", "error", err, "user_id", userID)
 					return
 				}
 			}
 		}()
 
-		// Держим соединение открытым
-		select {}
+		// Ждем завершения клиентской горутины
+		<-done
+
+		// Закрываем оба соединения
+		targetConn.Close()
+		clientConn.Close()
+
+		log.Info("WebSocketProxy: соединение полностью закрыто", "user_id", userID)
 	}
 }
 

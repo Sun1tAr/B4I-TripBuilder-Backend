@@ -10,10 +10,12 @@ import (
 type RouteRepository interface {
 	// Создание маршрута
 	Create(ctx context.Context, route *models.Route, waypoints []models.Waypoint) error
+	CreateWithWaypoints(ctx context.Context, route *models.Route, waypoints []models.Waypoint, transfers []models.Transfer) error // ← ОБНОВЛЯЕМ
+	GetByIDs(ctx context.Context, ids []uuid.UUID) ([]models.Route, error)
 
 	// Получение маршрута по ID
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Route, error)
-	GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Route, []models.Waypoint, error)
+	GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Route, []models.Waypoint, []models.Transfer, error) // ← ОБНОВЛЯЕМ
 
 	// Получение списка маршрутов
 	ListPublic(ctx context.Context, limit, offset int, sort string, filters map[string]interface{}) ([]models.Route, int64, error)
@@ -23,6 +25,7 @@ type RouteRepository interface {
 
 	// Обновление маршрута
 	Update(ctx context.Context, route *models.Route, waypoints []models.Waypoint) error
+	UpdateWithTransfers(ctx context.Context, route *models.Route, waypoints []models.Waypoint, transfers []models.Transfer) error // ← ДОБАВЛЯЕМ
 
 	// Удаление маршрута
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -81,4 +84,5 @@ type LikeRepository interface {
 
 	// Получить список пользователей, лайкнувших маршрут
 	GetUsersByRouteID(ctx context.Context, routeID uuid.UUID, limit, offset int) ([]uuid.UUID, int64, error)
+	GetLikedRoutesByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]uuid.UUID, int64, error)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/event/internal/service"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	sharedMiddleware "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/middleware"
 	sharedMigrate "github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/migrate"
 	"github.com/go-chi/chi/v5"
@@ -78,8 +79,9 @@ func main() {
 	waypointRepo := postgres.NewWaypointRepository(db, cfg.Database.Schema, log)
 	mediaRepo := postgres.NewMediaRepository(db, cfg.Database.Schema, log)
 	commentRepo := postgres.NewCommentRepository(db, cfg.Database.Schema, log)
+	transferRepo := postgres.NewEventTransferRepository(db, cfg.Database.Schema, log)
 
-	// Инициализация Redis клиента для ссылок-приглашений
+	// Инициализация Redis клиента
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
@@ -87,7 +89,6 @@ func main() {
 	})
 	defer redisClient.Close()
 
-	// Проверка Redis
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		log.Error("Redis недоступен", "error", err)
 		os.Exit(1)
@@ -109,6 +110,7 @@ func main() {
 		waypointRepo,
 		mediaRepo,
 		commentRepo,
+		transferRepo,
 		routeClient,
 		authClient,
 		userClient,
@@ -142,18 +144,21 @@ func main() {
 
 	// Глобальные middleware
 	r.Use(sharedMiddleware.RequestID)
+	r.Use(sharedMiddleware.ChiMetricsMiddleware(cfg.ServiceName))
 	r.Use(sharedMiddleware.Logging(log))
 	r.Use(sharedMiddleware.Recover(log))
 
 	// Публичные health-эндпоинты
 	r.Get("/health", handlers.Health)
 	r.Get("/ready", handlers.Ready)
+	r.Handle("/metrics", metrics.Handler())
 
 	// API роутер с префиксом /api/v1/events
 	r.Route("/api/v1/events", func(r chi.Router) {
 		// ========== ПУБЛИЧНЫЕ МАРШРУТЫ ==========
 		r.Group(func(r chi.Router) {
 			r.Get("/public", eventHandler.GetPublicEvents)
+			r.Get("/invite-link/{link_id}", eventHandler.GetEventByInviteLink)
 		})
 
 		// ========== УСЛОВНО-ЗАКРЫТЫЕ (опциональная авторизация) ==========
@@ -185,7 +190,6 @@ func main() {
 			r.Post("/invites/{invite_id}/accept", eventHandler.AcceptInvite)
 			r.Post("/invites/{invite_id}/decline", eventHandler.DeclineInvite)
 			r.Post("/invites/new", eventHandler.CreateInviteLink)
-			r.Get("/invite-link/{link_id}", eventHandler.GetEventByInviteLink)
 
 			// Участники
 			r.Post("/{id}/invite", eventHandler.InviteParticipants)

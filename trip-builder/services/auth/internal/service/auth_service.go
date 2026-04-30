@@ -12,6 +12,8 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/domain/models"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/auth/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -33,6 +35,14 @@ type AuthService struct {
 	tokenRepo repository.RefreshTokenRepository
 	log       *logger.Logger
 }
+
+var authMetrics = metrics.NewBusinessMetrics("auth")
+
+var (
+	authRegistrationsTotal = authMetrics.NewCounter("auth_registrations_total", "Total user registrations")
+	authLoginsTotal        = authMetrics.NewCounter("auth_logins_total", "Total successful logins")
+	authFailedLoginsTotal  = authMetrics.NewCounter("auth_failed_logins_total", "Total failed login attempts")
+)
 
 func NewAuthService(
 	cfg *config.Config,
@@ -86,6 +96,7 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*mo
 
 	s.log.Info("Register: пользователь зарегистрирован", "user_id", user.ID, "email", email)
 
+	authRegistrationsTotal.Inc()
 	return user, verifyToken, nil
 }
 
@@ -134,6 +145,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 	s.log.Info("Login: успешный вход", "user_id", user.ID, "email", email)
 
+	authLoginsTotal.Inc()
 	return accessToken, refreshToken, nil
 }
 

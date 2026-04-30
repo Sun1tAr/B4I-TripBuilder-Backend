@@ -66,64 +66,6 @@ func (h *EventHandler) getUserEmailFromContext(r *http.Request) string {
 	return email
 }
 
-// eventDetailToResponse преобразует детальную модель в DTO ответа
-func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetailResponse {
-	// Получаем cover_url
-	coverURL := ""
-	if event.CoverURL.Valid {
-		coverURL = event.CoverURL.String
-	}
-
-	resp := &eventdto.EventDetailResponse{
-		EventResponse: eventdto.EventResponse{
-			ID:          event.ID,
-			RouteID:     event.RouteID,
-			Title:       event.Title,
-			Description: event.Description,
-			CoverURL:    coverURL,
-			OwnerID:     event.OwnerID,
-			StartDate:   event.StartDate,
-			EndDate:     event.EndDate,
-			IsGroup:     event.IsGroup,
-			Status:      event.Status,
-			IsPublic:    event.IsPublic,
-			CreatedAt:   event.CreatedAt,
-			UpdatedAt:   event.UpdatedAt,
-		},
-		Participants: make([]eventdto.ParticipantResponse, len(event.Participants)),
-		Waypoints:    make([]eventdto.WaypointResponse, len(event.Waypoints)),
-	}
-
-	for i, p := range event.Participants {
-		resp.Participants[i] = eventdto.ParticipantResponse{
-			UserID:          p.UserID,
-			Role:            p.Role,
-			ApprovedByOwner: p.ApprovedByOwner,
-			ApprovedByUser:  p.ApprovedByUser,
-			InvitedEmail:    p.InvitedEmail,
-			JoinedAt:        p.JoinedAt,
-		}
-	}
-
-	for i, w := range event.Waypoints {
-		resp.Waypoints[i] = eventdto.WaypointResponse{
-			ID:           w.ID,
-			City:         w.City,
-			Description:  w.Description,
-			Latitude:     w.Latitude,
-			Longitude:    w.Longitude,
-			PlannedStart: w.PlannedStart,
-			PlannedEnd:   w.PlannedEnd,
-			ActualStart:  w.ActualStart,
-			ActualEnd:    w.ActualEnd,
-			Status:       w.Status,
-			OrderIndex:   w.OrderIndex,
-		}
-	}
-
-	return resp
-}
-
 // GetMyEvents возвращает поездки текущего пользователя
 func (h *EventHandler) GetMyEvents(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
@@ -337,93 +279,6 @@ func (h *EventHandler) GetPublicEvents(w http.ResponseWriter, r *http.Request) {
 	)
 
 	h.writeJSON(w, http.StatusOK, response)
-}
-
-// GetEventByID возвращает детальную информацию о поездке
-func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
-	log := h.log.WithRequestID(r.Context())
-	eventIDStr := chi.URLParam(r, "id")
-
-	eventID, err := uuid.Parse(eventIDStr)
-	if err != nil {
-		log.Debug("GetEventByID: неверный ID", "event_id", eventIDStr)
-		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
-		return
-	}
-
-	userID := h.getUserIDFromContext(r)
-
-	log.Debug("GetEventByID: запрос", "event_id", eventID, "user_id", userID)
-
-	event, err := h.eventService.GetEventByID(r.Context(), eventID, userID)
-	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrEventNotFound):
-			log.Debug("GetEventByID: событие не найдено", "event_id", eventID)
-			h.writeError(w, http.StatusNotFound, "event not found", "")
-		default:
-			log.Error("Ошибка получения поездки", "error", err, "event_id", eventID)
-			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		}
-		return
-	}
-
-	log.Info("GetEventByID: событие получено", "event_id", eventID)
-	response := eventDetailToResponse(event)
-	h.writeJSON(w, http.StatusOK, response)
-}
-
-// CreateEvent создаёт новую поездку
-func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
-	log := h.log.WithRequestID(r.Context())
-	log.Info("CreateEvent: создание поездки") // INFO — бизнес-операция
-
-	userID := h.getUserIDFromContext(r)
-	if userID == nil {
-		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
-		return
-	}
-
-	var req eventdto.CreateEventRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Debug("CreateEvent: ошибка декодирования", "error", err) // DEBUG — проверка
-		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
-		return
-	}
-
-	log.Debug("CreateEvent: данные запроса",
-		"route_id", req.RouteID,
-		"title", req.Title,
-		"start_date", req.StartDate,
-		"is_group", req.IsGroup,
-		"invited_emails_count", len(req.InvitedEmails),
-	)
-
-	createReq := &models.CreateEventRequest{
-		RouteID:       req.RouteID,
-		Title:         req.Title,
-		Description:   req.Description,
-		StartDate:     req.StartDate,
-		IsGroup:       req.IsGroup,
-		InvitedEmails: req.InvitedEmails,
-	}
-
-	event, err := h.eventService.CreateEvent(r.Context(), *userID, createReq)
-	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrInvalidStartDate):
-			log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
-			h.writeError(w, http.StatusBadRequest, "start date cannot be in the past", "")
-		default:
-			log.Error("Ошибка создания поездки", "error", err)
-			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		}
-		return
-	}
-
-	log.Info("CreateEvent: поездка создана", "event_id", event.ID, "user_id", userID)
-	response := eventDetailToResponse(event)
-	h.writeJSON(w, http.StatusCreated, response)
 }
 
 // UpdateEvent обновляет поездку
@@ -942,63 +797,6 @@ func (h *EventHandler) GetWaypoints(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// VisitWaypoint отмечает точку посещённой
-func (h *EventHandler) VisitWaypoint(w http.ResponseWriter, r *http.Request) {
-	log := h.log.WithRequestID(r.Context())
-	eventIDStr := chi.URLParam(r, "id")
-	waypointIDStr := chi.URLParam(r, "waypointId")
-
-	eventID, err := uuid.Parse(eventIDStr)
-	if err != nil {
-		log.Debug("VisitWaypoint: неверный ID события", "event_id", eventIDStr)
-		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
-		return
-	}
-
-	waypointID, err := uuid.Parse(waypointIDStr)
-	if err != nil {
-		log.Debug("VisitWaypoint: неверный ID точки", "waypoint_id", waypointIDStr)
-		h.writeError(w, http.StatusBadRequest, "invalid waypoint id", "")
-		return
-	}
-
-	userID := h.getUserIDFromContext(r)
-	if userID == nil {
-		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
-		return
-	}
-
-	var req eventdto.VisitWaypointRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Debug("VisitWaypoint: ошибка декодирования", "error", err)
-		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
-		return
-	}
-
-	visitReq := &models.VisitWaypointRequest{
-		ActualStart: req.ActualStart,
-		ActualEnd:   req.ActualEnd,
-	}
-
-	err = h.eventService.VisitWaypoint(r.Context(), eventID, waypointID, *userID, visitReq)
-	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrEventNotFound):
-			h.writeError(w, http.StatusNotFound, "event not found", "")
-		case errors.Is(err, service.ErrNotParticipant):
-			h.writeError(w, http.StatusForbidden, "you are not a participant of this event", "")
-		case errors.Is(err, service.ErrInvalidWaypoint):
-			h.writeError(w, http.StatusNotFound, "waypoint not found", "")
-		default:
-			log.Error("Ошибка отметки точки", "error", err, "event_id", eventID, "waypoint_id", waypointID)
-			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		}
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, map[string]string{"message": "waypoint marked as visited"})
-}
-
 // AddMedia добавляет медиа к точке
 func (h *EventHandler) AddMedia(w http.ResponseWriter, r *http.Request) {
 	log := h.log.WithRequestID(r.Context())
@@ -1471,4 +1269,323 @@ func (h *EventHandler) UpdateEventCover(w http.ResponseWriter, r *http.Request) 
 		"message":   "cover updated successfully",
 		"cover_url": coverURL,
 	})
+}
+
+// eventTransferToResponse преобразует модель перемещения в DTO
+func eventTransferToResponse(t *models.EventTransfer) eventdto.EventTransferResponse {
+	return eventdto.EventTransferResponse{
+		ID:              t.ID,
+		FromWaypointID:  t.FromWaypointID,
+		ToWaypointID:    t.ToWaypointID,
+		DurationHours:   t.DurationHours,
+		DurationMinutes: t.DurationMinutes,
+		TransportType:   string(t.TransportType),
+		PlannedStart:    t.PlannedStart,
+		PlannedEnd:      t.PlannedEnd,
+		ActualStart:     t.ActualStart,
+		ActualEnd:       t.ActualEnd,
+		OrderIndex:      t.OrderIndex,
+		CreatedAt:       t.CreatedAt,
+		UpdatedAt:       t.UpdatedAt,
+	}
+}
+
+// buildTimeline строит объединенный таймлайн из точек и перемещений
+func buildTimeline(waypoints []models.Waypoint, transfers []models.EventTransfer) []eventdto.TimelineItem {
+	timeline := make([]eventdto.TimelineItem, 0, len(waypoints)+len(transfers))
+
+	// Создаем мапу для быстрого поиска перемещений по from_waypoint_id
+	transfersByFrom := make(map[uuid.UUID]*models.EventTransfer)
+	for i := range transfers {
+		transfersByFrom[transfers[i].FromWaypointID] = &transfers[i]
+	}
+
+	// Создаем мапу waypoints по ID для быстрого доступа
+	waypointsByID := make(map[uuid.UUID]*models.Waypoint)
+	for i := range waypoints {
+		waypointsByID[waypoints[i].ID] = &waypoints[i]
+	}
+
+	// Сортируем точки по order_index
+	sortedWaypoints := make([]models.Waypoint, len(waypoints))
+	copy(sortedWaypoints, waypoints)
+	// Сортировка по order_index (предполагаем, что уже отсортированы в репозитории)
+
+	for i, wp := range sortedWaypoints {
+		// Добавляем точку
+		timeline = append(timeline, eventdto.TimelineItem{
+			Type: "waypoint",
+			Data: waypointToResponse(&wp),
+		})
+
+		// Ищем перемещение из этой точки
+		if transfer, ok := transfersByFrom[wp.ID]; ok {
+			timeline = append(timeline, eventdto.TimelineItem{
+				Type: "transfer",
+				Data: eventTransferToResponse(transfer),
+			})
+		}
+		_ = i // заглушка
+	}
+
+	return timeline
+}
+
+// eventDetailToResponse преобразует детальную модель в DTO ответа с таймлайном
+func eventDetailToResponse(event *models.EventWithDetails) *eventdto.EventDetailResponse {
+	coverURL := ""
+	if event.CoverURL.Valid {
+		coverURL = event.CoverURL.String
+	}
+
+	resp := &eventdto.EventDetailResponse{
+		EventResponse: eventdto.EventResponse{
+			ID:                event.ID,
+			RouteID:           event.RouteID,
+			Title:             event.Title,
+			Description:       event.Description,
+			CoverURL:          coverURL,
+			OwnerID:           event.OwnerID,
+			StartDate:         event.StartDate,
+			EndDate:           event.EndDate,
+			IsGroup:           event.IsGroup,
+			Status:            event.Status,
+			IsPublic:          event.IsPublic,
+			CreatedAt:         event.CreatedAt,
+			UpdatedAt:         event.UpdatedAt,
+			TotalInvites:      0, // заполняется отдельно
+			TotalParticipants: len(event.Participants),
+		},
+		Participants: make([]eventdto.ParticipantResponse, len(event.Participants)),
+		Waypoints:    make([]eventdto.WaypointResponse, len(event.Waypoints)),
+		Transfers:    make([]eventdto.EventTransferResponse, len(event.Transfers)),
+	}
+
+	// Участники
+	for i, p := range event.Participants {
+		resp.Participants[i] = eventdto.ParticipantResponse{
+			UserID:          p.UserID,
+			Role:            p.Role,
+			ApprovedByOwner: p.ApprovedByOwner,
+			ApprovedByUser:  p.ApprovedByUser,
+			InvitedEmail:    p.InvitedEmail,
+			JoinedAt:        p.JoinedAt,
+		}
+	}
+
+	// Точки
+	for i, w := range event.Waypoints {
+		resp.Waypoints[i] = eventdto.WaypointResponse{
+			ID:           w.ID,
+			City:         w.City,
+			Description:  w.Description,
+			Latitude:     w.Latitude,
+			Longitude:    w.Longitude,
+			PlannedStart: w.PlannedStart,
+			PlannedEnd:   w.PlannedEnd,
+			ActualStart:  w.ActualStart,
+			ActualEnd:    w.ActualEnd,
+			Status:       w.Status,
+			OrderIndex:   w.OrderIndex,
+		}
+	}
+
+	// Перемещения
+	for i, t := range event.Transfers {
+		resp.Transfers[i] = eventTransferToResponse(&t)
+	}
+
+	// Таймлайн
+	resp.Timeline = buildTimeline(event.Waypoints, event.Transfers)
+
+	return resp
+}
+
+// GetEventByID возвращает детальную информацию о поездке с таймлайном
+func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	eventIDStr := chi.URLParam(r, "id")
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		log.Debug("GetEventByID: неверный ID", "event_id", eventIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+
+	log.Debug("GetEventByID: запрос", "event_id", eventID, "user_id", userID)
+
+	event, err := h.eventService.GetEventByID(r.Context(), eventID, userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrEventNotFound):
+			log.Debug("GetEventByID: событие не найдено", "event_id", eventID)
+			h.writeError(w, http.StatusNotFound, "event not found", "")
+		default:
+			log.Error("Ошибка получения поездки", "error", err, "event_id", eventID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	response := eventDetailToResponse(event)
+
+	log.Info("GetEventByID: событие получено",
+		"event_id", eventID,
+		"waypoints", len(event.Waypoints),
+		"transfers", len(event.Transfers),
+	)
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// CreateEvent создаёт новую поездку с копированием перемещений
+func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	log.Info("CreateEvent: создание поездки")
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	var req eventdto.CreateEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debug("CreateEvent: ошибка декодирования", "error", err)
+		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+
+	log.Debug("CreateEvent: данные запроса",
+		"route_id", req.RouteID,
+		"title", req.Title,
+		"start_date", req.StartDate,
+		"is_group", req.IsGroup,
+		"invited_emails_count", len(req.InvitedEmails),
+	)
+
+	createReq := &models.CreateEventRequest{
+		RouteID:       req.RouteID,
+		Title:         req.Title,
+		Description:   req.Description,
+		CoverURL:      req.CoverURL,
+		StartDate:     req.StartDate,
+		IsGroup:       req.IsGroup,
+		InvitedEmails: req.InvitedEmails,
+		IsPublic:      req.IsPublic,
+	}
+
+	event, err := h.eventService.CreateEvent(r.Context(), *userID, createReq)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidStartDate):
+			log.Debug("CreateEvent: дата начала в прошлом", "start_date", req.StartDate)
+			h.writeError(w, http.StatusBadRequest, "start date cannot be in the past", "")
+		default:
+			log.Error("Ошибка создания поездки", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	log.Info("CreateEvent: поездка создана",
+		"event_id", event.ID,
+		"user_id", userID,
+		"waypoints", len(event.Waypoints),
+		"transfers", len(event.Transfers),
+	)
+
+	response := eventDetailToResponse(event)
+	h.writeJSON(w, http.StatusCreated, response)
+}
+
+// VisitWaypoint отмечает точку посещённой и обновляет трансфер
+func (h *EventHandler) VisitWaypoint(w http.ResponseWriter, r *http.Request) {
+	log := h.log.WithRequestID(r.Context())
+	eventIDStr := chi.URLParam(r, "id")
+	waypointIDStr := chi.URLParam(r, "waypointId")
+
+	eventID, err := uuid.Parse(eventIDStr)
+	if err != nil {
+		log.Debug("VisitWaypoint: неверный ID события", "event_id", eventIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid event id", "")
+		return
+	}
+
+	waypointID, err := uuid.Parse(waypointIDStr)
+	if err != nil {
+		log.Debug("VisitWaypoint: неверный ID точки", "waypoint_id", waypointIDStr)
+		h.writeError(w, http.StatusBadRequest, "invalid waypoint id", "")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == nil {
+		h.writeError(w, http.StatusUnauthorized, "unauthorized", "")
+		return
+	}
+
+	var req eventdto.VisitWaypointRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debug("VisitWaypoint: ошибка декодирования", "error", err)
+		h.writeError(w, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+
+	log.Info("VisitWaypoint: отметка точки",
+		"event_id", eventID,
+		"waypoint_id", waypointID,
+		"user_id", userID,
+	)
+
+	visitReq := &models.VisitWaypointRequest{
+		ActualStart: req.ActualStart,
+		ActualEnd:   req.ActualEnd,
+	}
+
+	err = h.eventService.VisitWaypoint(r.Context(), eventID, waypointID, *userID, visitReq)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrEventNotFound):
+			h.writeError(w, http.StatusNotFound, "event not found", "")
+		case errors.Is(err, service.ErrNotParticipant):
+			h.writeError(w, http.StatusForbidden, "you are not a participant of this event", "")
+		case errors.Is(err, service.ErrInvalidWaypoint):
+			h.writeError(w, http.StatusNotFound, "waypoint not found", "")
+		default:
+			log.Error("Ошибка отметки точки", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		}
+		return
+	}
+
+	log.Info("VisitWaypoint: точка отмечена как посещённая",
+		"event_id", eventID,
+		"waypoint_id", waypointID,
+	)
+
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "waypoint marked as visited"})
+}
+
+// waypointToResponse преобразует модель точки в DTO ответа
+func waypointToResponse(w *models.Waypoint) eventdto.WaypointResponse {
+	if w == nil {
+		return eventdto.WaypointResponse{}
+	}
+	return eventdto.WaypointResponse{
+		ID:           w.ID,
+		City:         w.City,
+		Description:  w.Description,
+		Latitude:     w.Latitude,
+		Longitude:    w.Longitude,
+		PlannedStart: w.PlannedStart,
+		PlannedEnd:   w.PlannedEnd,
+		ActualStart:  w.ActualStart,
+		ActualEnd:    w.ActualEnd,
+		Status:       w.Status,
+		OrderIndex:   w.OrderIndex,
+	}
 }

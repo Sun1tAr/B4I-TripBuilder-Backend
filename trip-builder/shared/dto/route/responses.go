@@ -6,6 +6,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// TransferResponse DTO для перемещения
+type TransferResponse struct {
+	ID              uuid.UUID `json:"id"`
+	FromWaypointID  uuid.UUID `json:"from_waypoint_id"`
+	ToWaypointID    uuid.UUID `json:"to_waypoint_id"`
+	DurationHours   int       `json:"duration_hours"`
+	DurationMinutes int       `json:"duration_minutes"`
+	TransportType   string    `json:"transport_type"`
+	OrderIndex      int       `json:"order_index"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
+}
+
 // RouteResponse DTO для маршрута
 type RouteResponse struct {
 	ID          uuid.UUID  `json:"id"`
@@ -27,8 +40,9 @@ type RouteResponse struct {
 // RouteDetailResponse DTO для детальной информации о маршруте
 type RouteDetailResponse struct {
 	RouteResponse
-	Waypoints []WaypointResponse `json:"waypoints"`
-	Tags      []TagResponse      `json:"tags"`
+	Waypoints []WaypointResponse  `json:"waypoints"`
+	Tags      []TagResponse       `json:"tags"`
+	Transfers []TransferResponse  `json:"transfers,omitempty"`
 }
 
 // WaypointResponse DTO для точки маршрута
@@ -48,13 +62,6 @@ type TagResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	RoutesCount int    `json:"routes_count"`
-}
-
-// LikeResponse DTO для лайка
-type LikeResponse struct {
-	UserID    uuid.UUID `json:"user_id"`
-	RouteID   uuid.UUID `json:"route_id"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 // ListRoutesResponse DTO для списка маршрутов с пагинацией

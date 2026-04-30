@@ -13,6 +13,7 @@ type CreateEventRequest struct {
 	CoverURL      string    `json:"cover_url,omitempty"` // NEW
 	StartDate     time.Time `json:"start_date" validate:"required"`
 	IsGroup       bool      `json:"is_group"`
+	IsPublic      bool      `json:"is_public"`
 	InvitedEmails []string  `json:"invited_emails,omitempty"`
 }
 
@@ -65,4 +66,56 @@ type ListEventsRequest struct {
 type CreateInviteLinkRequest struct {
 	EventID    uuid.UUID `json:"event_id" validate:"required"`
 	TTLSeconds int       `json:"ttl_seconds,omitempty"` // опционально, если нужен свой TTL
+}
+
+// CreateEventTransferRequest DTO для создания перемещения в поездке
+type CreateEventTransferRequest struct {
+	FromWaypointID  uuid.UUID `json:"from_waypoint_id" validate:"required"`
+	ToWaypointID    uuid.UUID `json:"to_waypoint_id" validate:"required"`
+	DurationHours   int       `json:"duration_hours" validate:"min=0"`
+	DurationMinutes int       `json:"duration_minutes" validate:"min=0,max=59"`
+	TransportType   string    `json:"transport_type" validate:"required,oneof=walking car moto animal water air"`
+}
+
+// UpdateEventTransferRequest DTO для обновления перемещения
+type UpdateEventTransferRequest struct {
+	DurationHours   *int       `json:"duration_hours,omitempty"`
+	DurationMinutes *int       `json:"duration_minutes,omitempty"`
+	TransportType   *string    `json:"transport_type,omitempty"`
+	PlannedStart    *time.Time `json:"planned_start,omitempty"`
+	PlannedEnd      *time.Time `json:"planned_end,omitempty"`
+	ActualStart     *time.Time `json:"actual_start,omitempty"`
+	ActualEnd       *time.Time `json:"actual_end,omitempty"`
+}
+
+// EventTransferResponse DTO для перемещения в поездке
+type EventTransferResponse struct {
+	ID              uuid.UUID  `json:"id"`
+	FromWaypointID  uuid.UUID  `json:"from_waypoint_id"`
+	ToWaypointID    uuid.UUID  `json:"to_waypoint_id"`
+	DurationHours   int        `json:"duration_hours"`
+	DurationMinutes int        `json:"duration_minutes"`
+	TransportType   string     `json:"transport_type"`
+	PlannedStart    *time.Time `json:"planned_start,omitempty"`
+	PlannedEnd      *time.Time `json:"planned_end,omitempty"`
+	ActualStart     *time.Time `json:"actual_start,omitempty"`
+	ActualEnd       *time.Time `json:"actual_end,omitempty"`
+	OrderIndex      int        `json:"order_index"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
+}
+
+// TimelineItem элемент таймлайна (точка или перемещение)
+type TimelineItem struct {
+	Type string      `json:"type"` // "waypoint" или "transfer"
+	Data interface{} `json:"data"`
+}
+
+// EventDetailResponse DTO для детальной информации о поездке
+type EventDetailResponse struct {
+	EventResponse
+	Participants []ParticipantResponse  `json:"participants"`
+	Waypoints    []WaypointResponse     `json:"waypoints"`
+	Transfers    []EventTransferResponse `json:"transfers,omitempty"`
+	Timeline     []TimelineItem         `json:"timeline,omitempty"` // ← ДОБАВЛЯЕМ
 }

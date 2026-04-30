@@ -12,6 +12,8 @@ type Client struct {
 	RoomID uuid.UUID
 	Send   chan []byte
 	Hub    *Hub
+	closed bool       // ← ДОБАВЛЯЕМ
+	mu     sync.Mutex // ← ДОБАВЛЯЕМ
 }
 
 type Hub struct {
@@ -55,7 +57,13 @@ func (h *Hub) Run() {
 					delete(h.rooms, client.RoomID)
 				}
 			}
-			close(client.Send)
+			// Безопасное закрытие канала
+			client.mu.Lock()
+			if !client.closed {
+				client.closed = true
+				close(client.Send)
+			}
+			client.mu.Unlock()
 			h.mu.Unlock()
 
 		case msg := <-h.broadcast:
@@ -69,8 +77,7 @@ func (h *Hub) Run() {
 				select {
 				case client.Send <- msg.Data:
 				default:
-					close(client.Send)
-					delete(clients, client.ID)
+					// Не закрываем канал здесь — Hub.Run сам это сделает при unregister
 				}
 			}
 			h.mu.RUnlock()

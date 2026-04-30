@@ -172,3 +172,54 @@ func (r *LikeRepository) GetUsersByRouteID(ctx context.Context, routeID uuid.UUI
 
 	return userIDs, total, nil
 }
+
+// GetLikedRoutesByUserID возвращает ID маршрутов, лайкнутых пользователем
+func (r *LikeRepository) GetLikedRoutesByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]uuid.UUID, int64, error) {
+	r.log.Debug("LikeRepository.GetLikedRoutesByUserID: начало",
+		"user_id", userID,
+		"limit", limit,
+		"offset", offset,
+	)
+
+	// Получаем общее количество
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE user_id = $1", r.table())
+	var total int64
+	err := r.db.QueryRowContext(ctx, countQuery, userID).Scan(&total)
+	if err != nil {
+		r.log.Error("LikeRepository.GetLikedRoutesByUserID: ошибка подсчёта", "error", err)
+		return nil, 0, err
+	}
+
+	// Получаем ID маршрутов
+	query := fmt.Sprintf(`
+		SELECT route_id FROM %s 
+		WHERE user_id = $1 
+		ORDER BY created_at DESC 
+		LIMIT $2 OFFSET $3
+	`, r.table())
+
+	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
+	if err != nil {
+		r.log.Error("LikeRepository.GetLikedRoutesByUserID: ошибка запроса", "error", err)
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var routeIDs []uuid.UUID
+	for rows.Next() {
+		var routeID uuid.UUID
+		if err := rows.Scan(&routeID); err != nil {
+			r.log.Error("LikeRepository.GetLikedRoutesByUserID: ошибка сканирования", "error", err)
+			return nil, 0, err
+		}
+		routeIDs = append(routeIDs, routeID)
+	}
+
+	r.log.Debug("LikeRepository.GetLikedRoutesByUserID: получено",
+		"user_id", userID,
+		"count", len(routeIDs),
+		"total", total,
+	)
+
+	return routeIDs, total, nil
+}

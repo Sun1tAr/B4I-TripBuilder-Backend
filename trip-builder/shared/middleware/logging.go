@@ -15,10 +15,19 @@ func Logging(log *logger.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			l := log.WithRequestID(r.Context())
 
-			// Нормализуем путь (убираем двойные слеши)
 			cleanPath := path.Clean(r.URL.Path)
 			if strings.HasSuffix(r.URL.Path, "/") && !strings.HasSuffix(cleanPath, "/") {
 				cleanPath += "/"
+			}
+
+			// Системные запросы логируем как DEBUG
+			if isSystemPath(cleanPath) {
+				l.DebugContext(r.Context(), "system request",
+					"method", r.Method,
+					"path", cleanPath,
+				)
+				next.ServeHTTP(w, r)
+				return
 			}
 
 			l.InfoContext(r.Context(), "request started",
@@ -34,4 +43,15 @@ func Logging(log *logger.Logger) func(http.Handler) http.Handler {
 			)
 		})
 	}
+}
+
+// isSystemPath возвращает true для системных эндпоинтов
+func isSystemPath(path string) bool {
+	systemPaths := []string{"/metrics", "/health", "/ready"}
+	for _, sp := range systemPaths {
+		if path == sp || strings.HasPrefix(path, sp) {
+			return true
+		}
+	}
+	return false
 }

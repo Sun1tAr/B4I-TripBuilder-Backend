@@ -31,7 +31,7 @@ type CreateWaypoint struct {
 }
 
 type UpdateWaypoint struct {
-	ID            *uuid.UUID `json:"id,omitempty"` // для существующих точек
+	ID            *uuid.UUID `json:"id,omitempty"`
 	City          *string    `json:"city,omitempty"`
 	Description   *string    `json:"description,omitempty"`
 	Latitude      *float64   `json:"latitude,omitempty"`
@@ -39,5 +39,4 @@ type UpdateWaypoint struct {
 	DurationDays  *int       `json:"duration_days,omitempty"`
 	DurationHours *int       `json:"duration_hours,omitempty"`
 	OrderIndex    *int       `json:"order_index,omitempty"`
-	// Если ID не указан, точка будет создана как новая
 }

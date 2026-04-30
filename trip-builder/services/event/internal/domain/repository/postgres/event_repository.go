@@ -15,16 +15,18 @@ import (
 )
 
 type EventRepository struct {
-	db     *sql.DB
-	schema string
-	log    *logger.Logger
+	db           *sql.DB
+	schema       string
+	transferRepo *EventTransferRepository // ← ДОБАВЛЯЕМ
+	log          *logger.Logger
 }
 
 func NewEventRepository(db *sql.DB, schema string, log *logger.Logger) *EventRepository {
 	return &EventRepository{
-		db:     db,
-		schema: schema,
-		log:    log,
+		db:           db,
+		schema:       schema,
+		transferRepo: NewEventTransferRepository(db, schema, log), // ← ДОБАВЛЯЕМ
+		log:          log,
 	}
 }
 
@@ -54,6 +56,8 @@ func (r *EventRepository) Create(ctx context.Context, event *models.Event) error
 }
 
 func (r *EventRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Event, error) {
+	r.log.Debug("EventRepository.GetByID: запрос", "id", id)
+
 	query := fmt.Sprintf(`
 		SELECT id, route_id, title, description, cover_url, owner_id, start_date, end_date,
 		       is_group, status, is_public, created_at, updated_at
@@ -64,15 +68,30 @@ func (r *EventRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Ev
 	var updatedAt sql.NullTime
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&event.ID, &event.RouteID, &event.Title, &event.Description, &event.CoverURL,
-		&event.OwnerID, &event.StartDate, &event.EndDate, &event.IsGroup, &event.Status,
-		&event.IsPublic, &event.CreatedAt, &updatedAt,
+		&event.ID,
+		&event.RouteID,
+		&event.Title,
+		&event.Description,
+		&event.CoverURL, // ← ВОТ ЗДЕСЬ МОЖЕТ БЫТЬ ПРОБЛЕМА
+		&event.OwnerID,
+		&event.StartDate,
+		&event.EndDate,
+		&event.IsGroup,
+		&event.Status,
+		&event.IsPublic,
+		&event.CreatedAt,
+		&updatedAt,
 	)
 	if err != nil {
+		r.log.Error("EventRepository.GetByID: ошибка Scan",
+			"error", err,
+			"error_type", fmt.Sprintf("%T", err),
+			"id", id,
+		)
 		if errors.Is(err, sql.ErrNoRows) {
+			r.log.Warn("EventRepository.GetByID: запись не найдена", "id", id)
 			return nil, nil
 		}
-		r.log.Error("EventRepository.GetByID: ошибка", "error", err, "event_id", id)
 		return nil, err
 	}
 
@@ -80,11 +99,13 @@ func (r *EventRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Ev
 		event.UpdatedAt = &updatedAt.Time
 	}
 
-	return event, nil
-}
+	r.log.Debug("EventRepository.GetByID: событие найдено",
+		"id", id,
+		"title", event.Title,
+		"cover_url_valid", event.CoverURL.Valid,
+	)
 
-func (r *EventRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Event, error) {
-	return r.GetByID(ctx, id)
+	return event, nil
 }
 
 // ListByUserID возвращает поездки, где пользователь является полноценным участником (оба флага true)
@@ -446,4 +467,119 @@ func (r *EventRepository) GetParticipantsStats(ctx context.Context, eventIDs []u
 	}
 
 	return result, nil
+}
+
+// GetByIDWithDetails получает событие с точками и перемещениями
+func (r *EventRepository) GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Event, []models.Waypoint, []models.EventTransfer, error) {
+	event, err := r.GetByID(ctx, id)
+	if err != nil || event == nil {
+		return event, nil, nil, err
+	}
+
+	// Получаем точки
+	waypointRepo := NewWaypointRepository(r.db, r.schema, r.log)
+	waypoints, err := waypointRepo.GetByEventID(ctx, id)
+	if err != nil {
+		r.log.Error("EventRepository.GetByIDWithDetails: ошибка получения точек", "error", err)
+		return event, nil, nil, err
+	}
+
+	// Получаем перемещения
+	transfers, err := r.transferRepo.GetByEventID(ctx, id)
+	if err != nil {
+		r.log.Error("EventRepository.GetByIDWithDetails: ошибка получения перемещений", "error", err)
+		return event, waypoints, nil, err
+	}
+
+	return event, waypoints, transfers, nil
+}
+
+// CreateWithWaypointsAndTransfers создаёт событие, точки и перемещения в одной транзакции
+func (r *EventRepository) CreateWithWaypointsAndTransfers(
+	ctx context.Context,
+	event *models.Event,
+	waypoints []models.Waypoint,
+	transfers []models.EventTransfer,
+) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		r.log.Error("EventRepository.CreateWithWaypointsAndTransfers: ошибка начала транзакции", "error", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	// Вставляем событие
+	eventQuery := fmt.Sprintf(`
+		INSERT INTO %s (id, route_id, title, description, cover_url, owner_id, start_date, end_date, 
+		                is_group, status, is_public, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, r.table())
+
+	_, err = tx.ExecContext(ctx, eventQuery,
+		event.ID, event.RouteID, event.Title, event.Description, event.CoverURL,
+		event.OwnerID, event.StartDate, event.EndDate, event.IsGroup,
+		event.Status, event.IsPublic, event.CreatedAt,
+	)
+	if err != nil {
+		r.log.Error("EventRepository.CreateWithWaypointsAndTransfers: ошибка вставки события", "error", err)
+		return err
+	}
+
+	// Вставляем точки
+	if len(waypoints) > 0 {
+		waypointTable := fmt.Sprintf("%s.event_waypoints", r.schema)
+		waypointQuery := fmt.Sprintf(`
+			INSERT INTO %s (id, event_id, route_waypoint_id, city, description, latitude, longitude,
+			                planned_start, planned_end, status, order_index, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		`, waypointTable)
+
+		for _, wp := range waypoints {
+			_, err = tx.ExecContext(ctx, waypointQuery,
+				wp.ID, wp.EventID, wp.RouteWaypointID, wp.City, wp.Description,
+				wp.Latitude, wp.Longitude, wp.PlannedStart, wp.PlannedEnd,
+				wp.Status, wp.OrderIndex, wp.CreatedAt,
+			)
+			if err != nil {
+				r.log.Error("EventRepository.CreateWithWaypointsAndTransfers: ошибка вставки точки", "error", err)
+				return err
+			}
+		}
+	}
+
+	// Вставляем перемещения
+	if len(transfers) > 0 {
+		transferTable := fmt.Sprintf("%s.event_transfers", r.schema)
+		transferQuery := fmt.Sprintf(`
+			INSERT INTO %s (id, event_id, from_waypoint_id, to_waypoint_id, 
+			                duration_hours, duration_minutes, transport_type, 
+			                planned_start, planned_end, order_index, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`, transferTable)
+
+		for _, t := range transfers {
+			_, err = tx.ExecContext(ctx, transferQuery,
+				t.ID, t.EventID, t.FromWaypointID, t.ToWaypointID,
+				t.DurationHours, t.DurationMinutes, t.TransportType,
+				t.PlannedStart, t.PlannedEnd, t.OrderIndex, t.CreatedAt,
+			)
+			if err != nil {
+				r.log.Error("EventRepository.CreateWithWaypointsAndTransfers: ошибка вставки перемещения", "error", err)
+				return err
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		r.log.Error("EventRepository.CreateWithWaypointsAndTransfers: ошибка коммита", "error", err)
+		return err
+	}
+
+	r.log.Info("EventRepository.CreateWithWaypointsAndTransfers: создано",
+		"event_id", event.ID,
+		"waypoints", len(waypoints),
+		"transfers", len(transfers),
+	)
+
+	return nil
 }

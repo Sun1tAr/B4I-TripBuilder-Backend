@@ -12,6 +12,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/media/internal/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/media/internal/minio"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 )
 
@@ -20,6 +21,12 @@ var (
 	ErrFileTooLarge    = errors.New("file too large")
 	ErrMediaNotFound   = errors.New("media not found")
 	ErrNotAuthorized   = errors.New("not authorized")
+)
+
+var mediaMetrics = metrics.NewBusinessMetrics("media")
+
+var (
+	mediaUploadedTotal = mediaMetrics.NewCounter("media_uploaded_total", "Total media files uploaded")
 )
 
 type MediaService struct {
@@ -168,6 +175,7 @@ func (s *MediaService) Upload(ctx context.Context, userID uuid.UUID, fileData []
 
 	s.log.Info("Upload: файл загружен", "media_id", media.ID, "object_key", objectKey)
 
+	mediaUploadedTotal.Inc()
 	// Возвращаем DTO с публичным URL
 	return &models.MediaResponse{
 		ID:        media.ID,

@@ -12,6 +12,7 @@ import (
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/domain/repository"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/services/task/internal/kafka"
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
+	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/metrics"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,13 @@ var (
 	ErrAlreadyApproved     = errors.New("task already approved")
 	ErrNotEventOwner       = errors.New("user is not the owner of this event")
 	ErrNotEventParticipant = errors.New("user is not a participant of this event")
+)
+
+var taskMetrics = metrics.NewBusinessMetrics("task")
+
+var (
+	tasksCreatedTotal   = taskMetrics.NewCounter("tasks_created_total", "Total tasks created")
+	tasksCompletedTotal = taskMetrics.NewCounter("tasks_completed_total", "Total tasks completed")
 )
 
 type TaskService struct {
@@ -160,6 +168,7 @@ func (s *TaskService) CreateTask(ctx context.Context, req *models.CreateTaskRequ
 		}()
 	}
 
+	tasksCreatedTotal.Inc()
 	return task, nil
 }
 
@@ -457,6 +466,9 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID uuid.UUID, req *mod
 		"new_status", task.Status,
 	)
 
+	if statusChangedToDone {
+		tasksCompletedTotal.Inc()
+	}
 	return task, nil
 }
 
