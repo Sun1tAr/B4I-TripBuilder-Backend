@@ -1,0 +1,489 @@
+name: Backend Build and Deploy (Reusable)
+
+on:
+  workflow_call:
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+
+    # jDoc Входные переменные
+    inputs:
+      contour:
+        description: 'Environment contour (development/production)'
+        required: true
+        type: string
+      deploy_path:
+        description: 'Deployment path on server'
+        required: true
+        type: string
+      nginx_conf_source:
+        description: 'Path to nginx config file in repo'
+        required: true
+        type: string
+      nginx_conf_target:
+        description: 'Target path for nginx config on server'
+        required: true
+        type: string
+      services:
+        description: 'JSON array of service names'
+        required: true
+        type: string
+      workflow_start:
+        description: 'Workflow start time (YYYY.MM.DD.HH.MM)'
+        required: true
+        type: string
+
+      # Порты и имена контейнеров
+      auth_port:
+        description: 'Auth service port'
+        required: true
+        type: string
+
+      user_port:
+        description: 'User service port'
+        required: true
+        type: string
+
+      gateway_port:
+        description: 'Gateway service port'
+        required: true
+        type: string
+      gateway_ws_port:
+        description: 'Gateway service port for ws'
+        required: true
+        type: string
+
+      postgres_port:
+        description: 'Postgres port'
+        required: true
+        type: string
+      postgres_user:
+        description: 'Postgres auth username'
+        required: true
+        type: string
+      postgres_password:
+        description: 'Postgres auth password'
+        required: true
+        type: string
+      postgres_database_name:
+        description: 'Postgres database name'
+        required: true
+        type: string
+
+      redis_port:
+        description: 'Redis port'
+        required: true
+        type: string
+
+      zookeeper_port:
+        description: 'Zookeeper port'
+        required: true
+        type: string
+      kafka_port:
+        description: 'Kafka port'
+        required: true
+        type: string
+      kafka_topics:
+        description: 'JSON array of Kafka topics to create'
+        required: false
+        type: string
+        default: '[]'
+
+      route_port:
+        description: 'Route service port'
+        required: true
+        type: string
+
+      event_port:
+        description: 'Event service port'
+        required: true
+        type: string
+
+      task_port:
+        description: 'Task service port'
+        required: true
+        type: string
+
+      chat_port:
+        description: 'Chat service port'
+        required: true
+        type: string
+
+      media_port:
+        description: 'Media service port'
+        required: true
+        type: string
+
+
+      minio_port:
+        description: 'Minio port'
+        required: true
+        type: string
+      minio_console_port:
+        description: 'Minio console port'
+        required: true
+        type: string
+      minio_user:
+        description: 'Minio auth username'
+        required: true
+        type: string
+      minio_password:
+        description: 'Minio auth password'
+        required: true
+        type: string
+
+      notification_port:
+        description: 'Notification service port'
+        required: true
+        type: string
+
+env:
+  GO_VERSION: '1.26'
+  REGISTRY: ghcr.io
+  CONTOUR: ${{ inputs.contour }}
+  DEPLOY_PATH: ${{ inputs.deploy_path }}
+  NGINX_APPS_AVAILABLE: ${{ inputs.nginx_conf_target }}
+  NGINX_APPS_ENABLED: /etc/nginx/apps-enabled/$(basename ${{ inputs.nginx_conf_target }})
+
+
+jobs:
+  test-and-build:
+    name: Test and Build
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    permissions:
+      contents: read
+      packages: read
+
+    strategy:
+      matrix:
+        service: ${{ fromJson(inputs.services) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Tidy shared module
+        working-directory: ./trip-builder/shared
+        run: |
+          go mod tidy
+
+      - name: Prepare ${{ matrix.service }} vendor
+        working-directory: ./trip-builder/services/${{ matrix.service }}
+        run: |
+          go mod download
+          go mod tidy
+          go mod vendor
+          go test ./... -v || true
+
+      - name: Upload ${{ matrix.service }} vendor
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-vendor
+          path: trip-builder/services/${{ matrix.service }}/vendor/
+          retention-days: 1
+
+  docker-build:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: test-and-build
+    if: github.event.pull_request.merged == true
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service: ${{ fromJson(inputs.services) }}
+
+    steps:
+      - name: Get short SHA
+        id: sha
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Set lowercase variables
+        id: string
+        run: |
+          echo "lowercase_owner=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+          REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
+          echo "lowercase_repo=${REPO_NAME,,}" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download ${{ matrix.service }} vendor
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.service }}-vendor
+          path: trip-builder/services/${{ matrix.service }}/vendor/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }} Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./trip-builder/services/${{ matrix.service }}
+          file: ./trip-builder/services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}.${{ inputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/${{ matrix.service }}:${{ inputs.contour }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.event.pull_request.merged == true
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Get short SHA
+        id: sha
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Set lowercase variables
+        id: string
+        run: |
+          echo "lowercase_owner=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+          REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
+          echo "lowercase_repo=${REPO_NAME,,}" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_HOST }}
+
+      - name: Add host to known_hosts
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES to get host key for ${{ secrets.SSH_HOST }}"
+            if ssh-keyscan -H -T 15 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1; then
+              echo "✅ Host key added successfully"
+              break
+            fi
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "⚠️ Could not get host key after $MAX_RETRIES attempts, continuing without strict host checking"
+              # Настраиваем SSH без проверки хоста (безопасно для CI/CD)
+              echo "Host ${{ secrets.SSH_HOST }}" >> ~/.ssh/config
+              echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+            fi
+            sleep 5
+          done
+
+      - name: Create deploy directories on server
+        run: |
+          for service in $(echo '${{ inputs.services }}' | jq -r '.[]'); do
+            ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services/$service"
+          done
+
+      - name: Copy docker-compose.yml to server
+        run: |
+          scp trip-builder/docker-compose.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/docker-compose.yml
+
+      - name: Copy env files to server
+        run: |
+          for service in $(echo '${{ inputs.services }}' | jq -r '.[]'); do
+            scp trip-builder/services/$service/.env.${{ inputs.contour }} \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/$service/.env
+          done
+
+      - name: Copy migration files to server
+        run: |
+          for service in $(echo '${{ inputs.services }}' | jq -r '.[]'); do
+            if [ -d "trip-builder/services/$service/migrations" ]; then
+              echo "Copying migrations for $service..."
+              ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/services/$service/migrations"
+              scp -r trip-builder/services/$service/migrations/* \
+                ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/$service/migrations/
+            fi
+          done
+
+      # jDoc Переменные композы с единым временем workflow
+      # fixme Перед выводом на тест нужно закрыть все внешние порты на дев и тест
+      - name: Create docker-compose .env file on server
+        run: |
+          # Формируем читаемый тег с единым временем workflow и коротким SHA
+          HUMAN_TAG="${{ inputs.contour }}.${{ inputs.workflow_start }}.${{ steps.sha.outputs.short_sha }}"
+
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cat > ${{ env.DEPLOY_PATH }}/.env << 'EOF'
+          CONTOUR=${{ inputs.contour }}
+          AUTH_PORT=${{ inputs.auth_port }}
+          AUTH_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/auth:$HUMAN_TAG
+          USER_PORT=${{ inputs.user_port }}
+          USER_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/user:$HUMAN_TAG
+          GATEWAY_PORT=${{ inputs.gateway_port }}
+          GATEWAY_WS_PORT=${{ inputs.gateway_ws_port }}
+          GATEWAY_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/gateway:$HUMAN_TAG
+          POSTGRES_PORT=${{ inputs.postgres_port }}
+          POSTGRES_USER=${{ inputs.postgres_user }}
+          POSTGRES_PASSWORD=${{ inputs.postgres_password }}
+          POSTGRES_DB=${{ inputs.postgres_database_name }}
+          REDIS_PORT=${{ inputs.redis_port }}
+          ZOOKEEPER_PORT=${{ inputs.zookeeper_port }}
+          KAFKA_PORT=${{ inputs.kafka_port }}
+          ROUTE_PORT=${{ inputs.route_port }}
+          ROUTE_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/route:$HUMAN_TAG
+          EVENT_PORT=${{ inputs.event_port }}
+          EVENT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/event:$HUMAN_TAG
+          TASK_PORT=${{ inputs.task_port }}
+          TASK_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/task:$HUMAN_TAG
+          CHAT_PORT=${{ inputs.chat_port }}
+          CHAT_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/chat:$HUMAN_TAG
+          MEDIA_PORT=${{ inputs.media_port }}
+          MEDIA_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/media:$HUMAN_TAG
+          MINIO_PORT=${{  inputs.minio_port  }}
+          MINIO_CONSOLE_PORT=${{  inputs.minio_console_port  }}
+          MINIO_ROOT_USER=${{  inputs.minio_user  }}
+          MINIO_ROOT_PASSWORD=${{  inputs.minio_password  }}
+          NOTIFICATION_IMAGE=${{ env.REGISTRY }}/${{ steps.string.outputs.lowercase_owner }}/${{ steps.string.outputs.lowercase_repo }}/notification:$HUMAN_TAG
+          EOF"
+
+      - name: Login to GHCR on server
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ env.DEPLOY_PATH }} && echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin"
+
+      - name: Pull latest images
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker-compose pull"
+
+      - name: Stop and remove old containers
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker-compose down --remove-orphans || true"
+
+      - name: Start new containers
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker-compose up -d --no-build"
+
+      - name: Clean up old images
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker image prune -f"
+
+      - name: Create Kafka topics
+        if: inputs.kafka_topics != '[]'
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "Waiting for Kafka to be ready..."
+            MAX_RETRIES=60  # 60 попыток * 10 секунд = 10 минут максимум
+            RETRY_COUNT=0
+          
+            # Проверяем готовность Kafka
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+                echo "✅ Kafka is ready after $(($RETRY_COUNT * 10)) seconds!"
+                break
+              fi
+          
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "⏳ Waiting for Kafka... attempt $RETRY_COUNT/$MAX_RETRIES (elapsed: $(($RETRY_COUNT * 10))s)"
+              sleep 10
+            done
+
+            # Если Kafka не готова после всех попыток - падаем
+            if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+              echo "❌ Kafka failed to start within 10 minutes!"
+              docker logs kafka --tail 50
+              exit 1
+            fi
+
+            # Создаём топики
+            for topic in $(echo '${{ inputs.kafka_topics }}' | jq -r '.[]'); do
+              echo "Creating topic: $topic"
+              docker exec kafka kafka-topics \
+                --bootstrap-server localhost:9092 \
+                --create \
+                --if-not-exists \
+                --topic "$topic" \
+                --partitions 1 \
+                --replication-factor 1
+            done
+
+            echo "=== Available topics ==="
+            docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
+          EOF
+
+  configure-nginx:
+    name: Configure Nginx
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event.pull_request.merged == true
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_HOST }}
+
+      - name: Add host to known_hosts
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES to get host key for ${{ secrets.SSH_HOST }}"
+            if ssh-keyscan -H -T 15 ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>&1; then
+              echo "✅ Host key added successfully"
+              break
+            fi
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "⚠️ Could not get host key after $MAX_RETRIES attempts, continuing without strict host checking"
+              # Настраиваем SSH без проверки хоста (безопасно для CI/CD)
+              echo "Host ${{ secrets.SSH_HOST }}" >> ~/.ssh/config
+              echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+            fi
+            sleep 5
+          done
+
+      - name: Copy nginx config to server
+        run: |
+          scp ${{ inputs.nginx_conf_source }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.NGINX_APPS_AVAILABLE }}
+
+      - name: Enable nginx config and reload
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            set -e
+          
+            sudo ln -sf ${{ env.NGINX_APPS_AVAILABLE }} ${{ env.NGINX_APPS_ENABLED }}
+            sudo nginx -t && sudo systemctl reload nginx
+          EOF

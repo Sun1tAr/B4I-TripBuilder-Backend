@@ -1,7 +1,7 @@
 # Multi-stage build for Tasks service
 
 # Stage 1: Builder
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
@@ -17,6 +17,7 @@ COPY vendor ./vendor
 
 # Copy source code
 COPY . .
+COPY cmd/server/migrations /app/cmd/server/migrations
 
 # Build the application using vendor
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/auth ./cmd/server
@@ -35,14 +36,13 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder --chown=appuser:appuser /app/bin/auth /app/auth
+COPY --from=builder --chown=appuser:appuser /app/cmd/server/migrations /app/cmd/server/migrations
 
 # Switch to non-root user
 USER appuser
 
 # Expose ports
 EXPOSE 8081
-EXPOSE 9001
-EXPOSE 9101
 
 # Command to run
 CMD ["/app/auth"]
