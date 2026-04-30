@@ -2,31 +2,18 @@ version: '3.8'
 
 services:
 
-  docker-logger:
-    image: umputun/docker-logger:latest
-    container_name: docker-logger
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./docker-logs:/srv/logs
-    environment:
-      - LOG_FILES=true
-      - MAX_SIZE=50
-      - MAX_FILES=5
-      - TIME_ZONE=Europe/Moscow
-    restart: unless-stopped
-
   postgres:
     image: postgres:15-alpine
     container_name: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-trip-builder} # fixme
+      POSTGRES_DB: ${POSTGRES_DB:-trip-builder}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data_${CONTOUR:-local}:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - trip-builder-network
     healthcheck:
@@ -232,7 +219,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data_${CONTOUR:-local}:/data # fixme
+      - minio_data:/data # fixme
     networks:
       - trip-builder-network
     healthcheck:
@@ -315,9 +302,9 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data_local: # fixme
+  postgres_data:
     driver: local
-  minio_data_local:  # fixme
+  minio_data:
     driver: local
-  prometheus_data:
+  prometheus:
     driver: local
