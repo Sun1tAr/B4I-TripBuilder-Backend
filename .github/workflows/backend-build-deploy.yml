@@ -42,9 +42,17 @@ on:
         description: 'Auth service port'
         required: true
         type: string
+      auth_container_name:
+        description: 'Auth container name'
+        required: true
+        type: string
 
       user_port:
         description: 'User service port'
+        required: true
+        type: string
+      user_container_name:
+        description: 'User container name'
         required: true
         type: string
 
@@ -56,9 +64,17 @@ on:
         description: 'Gateway service port for ws'
         required: true
         type: string
+      gateway_container_name:
+        description: 'Gateway container name'
+        required: true
+        type: string
 
       postgres_port:
         description: 'Postgres port'
+        required: true
+        type: string
+      postgres_container_name:
+        description: 'Postgres container name'
         required: true
         type: string
       postgres_user:
@@ -78,9 +94,21 @@ on:
         description: 'Redis port'
         required: true
         type: string
+      redis_container_name:
+        description: 'Redis container name'
+        required: true
+        type: string
 
+      zookeeper_container_name:
+        description: 'Zookeeper container name'
+        required: true
+        type: string
       zookeeper_port:
         description: 'Zookeeper port'
+        required: true
+        type: string
+      kafka_container_name:
+        description: 'Kafka container name'
         required: true
         type: string
       kafka_port:
@@ -97,9 +125,17 @@ on:
         description: 'Route service port'
         required: true
         type: string
+      route_container_name:
+        description: 'Route container name'
+        required: true
+        type: string
 
       event_port:
         description: 'Event service port'
+        required: true
+        type: string
+      event_container_name:
+        description: 'Event container name'
         required: true
         type: string
 
@@ -107,14 +143,26 @@ on:
         description: 'Task service port'
         required: true
         type: string
+      task_container_name:
+        description: 'Task container name'
+        required: true
+        type: string
 
       chat_port:
         description: 'Chat service port'
         required: true
         type: string
+      chat_container_name:
+        description: 'Chat container name'
+        required: true
+        type: string
 
       media_port:
         description: 'Media service port'
+        required: true
+        type: string
+      media_container_name:
+        description: 'Media container name'
         required: true
         type: string
 
@@ -125,6 +173,10 @@ on:
         type: string
       minio_console_port:
         description: 'Minio console port'
+        required: true
+        type: string
+      minio_container_name:
+        description: 'Minio container name'
         required: true
         type: string
       minio_user:
@@ -138,6 +190,10 @@ on:
 
       notification_port:
         description: 'Notification service port'
+        required: true
+        type: string
+      notification_container_name:
+        description: 'Notification container name'
         required: true
         type: string
 

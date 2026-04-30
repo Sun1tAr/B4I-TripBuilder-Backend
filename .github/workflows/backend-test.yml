@@ -1,0 +1,121 @@
+name: Backend Test CI/CD
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - release
+
+permissions:
+  contents: read
+  packages: write
+
+
+jobs:
+  # Сначала вычисляем время
+  prepare:
+    name: Prepare workflow data
+    runs-on: ubuntu-latest
+    outputs:
+      workflow_start: ${{ steps.time.outputs.workflow_start }}
+    steps:
+      - name: Get workflow start time
+        id: time
+        run: |
+          WORKFLOW_START=$(date -u +'%Y.%m.%d.%H.%M')
+          echo "workflow_start=$WORKFLOW_START" >> $GITHUB_OUTPUT
+          echo "Workflow started at: $WORKFLOW_START"
+
+  call-build-deploy:
+    needs: prepare
+    uses: ./.github/workflows/backend-build-deploy.yml
+    with:
+      contour: production
+      deploy_path: /opt/trip-builder/test
+      nginx_conf_source: .docker/nginx-backend-test.conf
+      nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-test.conf
+
+      # Передаём вычисленное время
+      workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
+
+      # jDoc сервисы
+      services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media", "notification"]'
+
+      auth_port: 9001
+      auth_container_name: trip-builder-backend-auth-test
+
+      user_port: 9002
+      user_container_name: trip-builder-backend-user-test
+
+      gateway_port: 9010
+      gateway_ws_port: 9011
+      gateway_container_name: trip-builder-backend-gateway-test
+
+      postgres_port: 5432
+      postgres_container_name: postgres-test
+      postgres_user: auth_user
+      postgres_password: auth_pass_test
+      postgres_database_name: trip-builder
+
+      redis_port: 6379
+      redis_container_name: redis-test
+
+      zookeeper_container_name: zookeeper-test
+      zookeeper_port: 2181
+      kafka_container_name: kafka-test
+      kafka_port: 9092
+
+      # jDoc топики кафки
+      kafka_topics: '[
+        "user.created", 
+        "user.updated", 
+        "user.deleted", 
+        "route.created", 
+        "event.completed", 
+        "event.deleted",
+        "media.uploaded", 
+        "user.events.retry", 
+        "user.events.dlq", 
+        "user.achievement_earned", 
+        "route.updated", 
+        "route.deleted",
+        "event.created", 
+        "event.updated", 
+        "event.completed", 
+        "event.cancelled", 
+        "waypoint.visited", 
+        "task.completed",
+        "event.participant_joined",
+        "event.invite",
+        "task.assigned"
+        ]'
+
+      route_port: 9003
+      route_container_name: trip-builder-backend-route-test
+
+      event_port: 9004
+      event_container_name: trip-builder-backend-event-test
+
+      task_port: 9005
+      task_container_name: trip-builder-backend-task-test
+
+      chat_port: 9006
+      chat_container_name: trip-builder-backend-chat-test
+
+      media_port: 9007
+      media_container_name: trip-builder-backend-media-test
+
+      notification_port: 9009
+      notification_container_name: trip-builder-backend-notification-test
+
+      minio_port: 7000
+      minio_console_port: 7001
+      minio_container_name: minio-test
+      minio_user: minio_user
+      minio_password: minio_pass_test
+
+
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
