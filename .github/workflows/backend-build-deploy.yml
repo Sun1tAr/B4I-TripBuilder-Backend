@@ -377,6 +377,29 @@ jobs:
               ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/services/$service/.env
           done
 
+
+
+   
+      - name: Copy monitoring configs to server
+        run: |
+          # Проверяем наличие prometheus.yml в репозитории
+          if [ -f "trip-builder/prometheus/prometheus.yml" ]; then
+            scp trip-builder/prometheus/prometheus.yml \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/prometheus/prometheus.yml
+            echo "✅ prometheus.yml copied"
+          else
+            echo "⚠️ prometheus.yml not found in repo, skipping"
+          fi
+          
+          if [ -f "trip-builder/promtail/promtail-config.yml" ]; then
+            scp trip-builder/promtail/promtail-config.yml \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/promtail/promtail-config.yml
+            echo "✅ promtail-config.yml copied"
+          else
+            echo "⚠️ promtail-config.yml not found in repo, skipping"
+          fi
+
+
       - name: Copy migration files to server
         run: |
           for service in $(echo '${{ inputs.services }}' | jq -r '.[]'); do
