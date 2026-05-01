@@ -382,6 +382,11 @@ jobs:
    
       - name: Copy monitoring configs to server
         run: |
+
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/prometheus"
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "mkdir -p ${{ env.DEPLOY_PATH }}/promtail"
+
+
           # Проверяем наличие prometheus.yml в репозитории
           if [ -f "trip-builder/prometheus/prometheus.yml" ]; then
             scp trip-builder/prometheus/prometheus.yml \
