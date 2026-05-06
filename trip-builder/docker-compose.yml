@@ -13,7 +13,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data_local:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - trip-builder-network
     healthcheck:
@@ -219,7 +219,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data_local:/data
+      - minio_data:/data
     networks:
       - trip-builder-network
     healthcheck:
@@ -264,7 +264,7 @@ services:
     container_name: prometheus
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data_local:/prometheus
+      - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -302,9 +302,9 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data_local:
+  postgres_data:
     driver: local
-  minio_data_local:
+  minio_data:
     driver: local
-  prometheus_data_local:
+  prometheus_data:
     driver: local
