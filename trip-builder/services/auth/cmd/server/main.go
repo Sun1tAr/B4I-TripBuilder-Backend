@@ -128,7 +128,14 @@ func main() {
 	userClient := user.NewClient(cfg.UserServiceURL, 10*time.Second, log)
 
 	// Инициализация хендлеров
-	authHandler := handlers.NewAuthHandler(authService, rateLimiter, kafkaProducer, userClient, log)
+	authHandler := handlers.NewAuthHandler(
+		authService,
+		rateLimiter,
+		kafkaProducer,
+		userClient,
+		cfg.PasswordResetTopic, // ← ДОБАВЛЯЕМ
+		log,
+	)
 
 	// Роутер
 	r := mux.NewRouter()

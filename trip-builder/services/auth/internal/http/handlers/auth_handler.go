@@ -23,11 +23,12 @@ import (
 )
 
 type AuthHandler struct {
-	authService   *service.AuthService
-	rateLimiter   *ratelimit.RateLimiter
-	kafkaProducer *kafka.Producer
-	userClient    *user.Client
-	log           *logger.Logger
+	authService        *service.AuthService
+	rateLimiter        *ratelimit.RateLimiter
+	kafkaProducer      *kafka.Producer
+	userClient         *user.Client
+	passwordResetTopic string // ← ДОБАВЛЯЕМ
+	log                *logger.Logger
 }
 
 func NewAuthHandler(
@@ -35,14 +36,16 @@ func NewAuthHandler(
 	rateLimiter *ratelimit.RateLimiter,
 	kafkaProducer *kafka.Producer,
 	userClient *user.Client,
+	passwordResetTopic string, // ← ДОБАВЛЯЕМ
 	log *logger.Logger,
 ) *AuthHandler {
 	return &AuthHandler{
-		authService:   authService,
-		rateLimiter:   rateLimiter,
-		kafkaProducer: kafkaProducer,
-		userClient:    userClient,
-		log:           log,
+		authService:        authService,
+		rateLimiter:        rateLimiter,
+		kafkaProducer:      kafkaProducer,
+		userClient:         userClient,
+		passwordResetTopic: passwordResetTopic, // ← ДОБАВЛЯЕМ
+		log:                log,
 	}
 }
 
@@ -361,10 +364,40 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 	}
 
 	if resetToken != "" {
-		h.log.Debug("Сгенерирован токен сброса пароля", "email", req.Email)
+		h.log.Info("Сгенерирован токен сброса пароля", "email", req.Email)
+
+		user, err := h.authService.GetUserByEmail(r.Context(), req.Email)
+		if err == nil && user != nil {
+			// Получаем имя из User Service
+			firstName := ""
+			profile, err := h.userClient.GetProfile(r.Context(), user.ID)
+			if err == nil && profile != nil {
+				firstName = profile.FirstName
+			}
+
+			go func() {
+				eventData := authdto.PasswordResetData{
+					UserID:     user.ID,
+					Email:      user.Email,
+					FirstName:  firstName, // ← Теперь с именем
+					ResetToken: resetToken,
+				}
+				event := kafka.Event{
+					EventID:   uuid.New().String(),
+					EventType: "password.reset",
+					Timestamp: time.Now(),
+					Data:      eventData,
+				}
+				if err := h.kafkaProducer.PublishTo(context.Background(), h.passwordResetTopic, event); err != nil {
+					h.log.Error("Ошибка отправки password.reset", "error", err)
+				}
+			}()
+		}
 	}
 
-	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "if email exists, reset link will be sent"})
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{
+		Message: "If email exists, reset link will be sent",
+	})
 }
 
 // ResetPassword сброс пароля

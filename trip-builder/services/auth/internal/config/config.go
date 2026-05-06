@@ -23,6 +23,8 @@ type Config struct {
 	VerificationURL  string        `envconfig:"VERIFICATION_URL" required:"true"`
 	ResetPasswordURL string        `envconfig:"RESET_PASSWORD_URL" required:"true"`
 
+	PasswordResetTopic string `envconfig:"KAFKA_TOPIC_PASSWORD_RESET" default:"password.reset"`
+
 	// Время жизни токенов
 	VerificationTokenLifetime  time.Duration `envconfig:"VERIFICATION_TOKEN_LIFETIME" default:"24h"`
 	ResetPasswordTokenLifetime time.Duration `envconfig:"RESET_PASSWORD_TOKEN_LIFETIME" default:"1h"`

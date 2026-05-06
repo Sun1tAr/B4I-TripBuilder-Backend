@@ -87,7 +87,8 @@ jobs:
         "task.completed",
         "event.participant_joined",
         "event.invite",
-        "task.assigned"
+        "task.assigned", 
+        "password.reset"
         ]'
 
       route_port: 9003

@@ -29,6 +29,8 @@ type RenderData struct {
 	FirstName        string
 	LastName         string
 	Email            string
+	VerificationLink string
+	ResetLink        string // ← ДОБАВЛЯЕМ
 	EventTitle       string
 	EventStartDate   string
 	EventEndDate     string
@@ -45,7 +47,6 @@ type RenderData struct {
 	ChatLink         string
 	DaysLeft         int
 	EventLink        string
-	VerificationLink string
 }
 
 // Render рендерит шаблон с данными
@@ -197,6 +198,10 @@ func (e *TemplateEngine) buildTemplateData(data *RenderData) map[string]interfac
 	if data.FirstName != "" || data.LastName != "" {
 		fullName := strings.TrimSpace(data.FirstName + " " + data.LastName)
 		result["FullName"] = fullName
+	}
+
+	if data.ResetLink != "" {
+		result["ResetLink"] = data.ResetLink
 	}
 
 	return result
