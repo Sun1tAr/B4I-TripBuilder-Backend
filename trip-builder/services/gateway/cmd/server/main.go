@@ -62,7 +62,6 @@ func main() {
 			r.Post("/auth/register", handlers.Proxy(cfg, "auth"))
 			r.Post("/auth/login", handlers.Proxy(cfg, "auth"))
 			r.Post("/auth/refresh", handlers.Proxy(cfg, "auth"))
-			r.Post("/auth/reset-password", handlers.Proxy(cfg, "auth"))
 			r.Post("/auth/reset-password/{token}", handlers.Proxy(cfg, "auth"))
 			r.Get("/auth/verify/{token}", handlers.Proxy(cfg, "auth"))
 
@@ -95,6 +94,7 @@ func main() {
 			r.Use(middleware.AuthOptional(cfg.JWTSecret, log))
 
 			r.Get("/routes", handlers.Proxy(cfg, "route"))
+			r.Post("/auth/reset-password", handlers.Proxy(cfg, "auth"))
 
 			r.Get("/events/my", handlers.Proxy(cfg, "event"))
 			r.Get("/events/{id}", handlers.Proxy(cfg, "event"))

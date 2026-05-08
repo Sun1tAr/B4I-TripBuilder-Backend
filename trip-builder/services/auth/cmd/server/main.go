@@ -128,7 +128,14 @@ func main() {
 	userClient := user.NewClient(cfg.UserServiceURL, 10*time.Second, log)
 
 	// Инициализация хендлеров
-	authHandler := handlers.NewAuthHandler(authService, rateLimiter, kafkaProducer, userClient, log)
+	authHandler := handlers.NewAuthHandler(
+		authService,
+		rateLimiter,
+		kafkaProducer,
+		userClient,
+		cfg.PasswordResetTopic, // ← ДОБАВЛЯЕМ
+		log,
+	)
 
 	// Роутер
 	r := mux.NewRouter()
@@ -146,11 +153,15 @@ func main() {
 	api.HandleFunc("/login", authHandler.Login).Methods("POST")
 	api.HandleFunc("/refresh", authHandler.Refresh).Methods("POST")
 	api.HandleFunc("/verify/{token}", authHandler.VerifyEmail).Methods("GET")
-	api.HandleFunc("/reset-password", authHandler.RequestPasswordReset).Methods("POST")
 	api.HandleFunc("/reset-password/{token}", authHandler.ResetPassword).Methods("POST")
 
 	api.HandleFunc("/internal/users/by-email", authHandler.GetUserByEmail).Methods("GET")
 	api.HandleFunc("/internal/users/{id}/email", authHandler.GetUserEmail).Methods("GET")
+
+	// Добавить группу с AuthOptional:
+	optional := api.PathPrefix("").Subrouter()
+	optional.Use(middleware.AuthOptional(log))
+	optional.HandleFunc("/reset-password", authHandler.RequestPasswordReset).Methods("POST")
 
 	// Защищённые маршруты (требуют JWT)
 	protected := api.PathPrefix("").Subrouter()

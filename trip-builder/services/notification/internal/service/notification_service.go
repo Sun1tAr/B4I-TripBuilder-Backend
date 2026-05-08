@@ -550,3 +550,29 @@ func (s *NotificationService) SendChatMessageEmail(ctx context.Context, userID u
 		"event_id", eventID,
 	)
 }
+
+func (s *NotificationService) SendPasswordResetEmail(ctx context.Context, userID uuid.UUID, emailAddress, firstName, resetToken string) {
+	s.log.Debug("NotificationService.SendPasswordResetEmail: начало",
+		"user_id", userID, "email", emailAddress,
+	)
+
+	allowed, err := s.emailRateLimiter.Allow(ctx, userID.String())
+	if err != nil || !allowed {
+		return
+	}
+
+	resetLink := s.cfg.GetForgotPasswordURL(resetToken)
+
+	data := &email.RenderData{
+		FirstName: firstName,
+		Email:     emailAddress,
+		ResetLink: resetLink,
+	}
+
+	subject, body, err := s.templateEngine.Render(ctx, "password.reset", "ru", data)
+	if err != nil {
+		return
+	}
+
+	s.emailSender.SendAsync(ctx, emailAddress, subject, body)
+}
