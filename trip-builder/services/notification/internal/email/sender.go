@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/smtp"
 	"time"
+	"encoding/base64"
 
 	"github.com/Sun1tAr/B4I-TripBuilder-Backend/trip-builder/shared/logger"
 )
@@ -47,7 +48,7 @@ func (s *Sender) Send(ctx context.Context, to, subject, htmlBody string) error {
 	headers := make(map[string]string)
 	headers["From"] = s.from
 	headers["To"] = to
-	headers["Subject"] = subject
+	headers["Subject"] = encodeRFC2047(subject)
 	headers["MIME-Version"] = "1.0"
 	headers["Content-Type"] = "text/html; charset=\"UTF-8\""
 
@@ -120,4 +121,21 @@ func maskEmail(email string) string {
 		return email
 	}
 	return email[:1] + "***" + email[atIndex:]
+}
+
+func encodeRFC2047(s string) string {
+	// Если строка ASCII — не кодируем
+	if isASCII(s) {
+		return s
+	}
+	return fmt.Sprintf("=?utf-8?B?%s?=", base64.StdEncoding.EncodeToString([]byte(s)))
+}
+
+func isASCII(s string) bool {
+	for _, c := range s {
+		if c > 127 {
+			return false
+		}
+	}
+	return true
 }
