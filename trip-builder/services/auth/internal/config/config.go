@@ -14,14 +14,12 @@ import (
 
 type Config struct {
 	config.AppConfig
-	JWTSecret        string        `envconfig:"JWT_SECRET" required:"true"`
-	TokenLifetime    time.Duration `envconfig:"TOKEN_LIFETIME" default:"15m"`
-	RefreshLifetime  time.Duration `envconfig:"REFRESH_LIFETIME" default:"168h"` // 7 дней
-	BCryptCost       int           `envconfig:"BCRYPT_COST" default:"10"`
-	RateLimitLogin   int           `envconfig:"RATE_LIMIT_LOGIN" default:"5"` // попыток в минуту
-	RateLimitWindow  time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"1m"`
-	VerificationURL  string        `envconfig:"VERIFICATION_URL" required:"true"`
-	ResetPasswordURL string        `envconfig:"RESET_PASSWORD_URL" required:"true"`
+	JWTSecret       string        `envconfig:"JWT_SECRET" required:"true"`
+	TokenLifetime   time.Duration `envconfig:"TOKEN_LIFETIME" default:"15m"`
+	RefreshLifetime time.Duration `envconfig:"REFRESH_LIFETIME" default:"168h"` // 7 дней
+	BCryptCost      int           `envconfig:"BCRYPT_COST" default:"10"`
+	RateLimitLogin  int           `envconfig:"RATE_LIMIT_LOGIN" default:"5"` // попыток в минуту
+	RateLimitWindow time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"1m"`
 
 	PasswordResetTopic string `envconfig:"KAFKA_TOPIC_PASSWORD_RESET" default:"password.reset"`
 
