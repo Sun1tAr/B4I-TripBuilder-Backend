@@ -270,14 +270,17 @@ func (s *EventService) calculateWaypointAndTransferDates(
 	now := time.Now()
 	waypoints := make([]models.Waypoint, 0, len(routeWaypoints))
 	orderToWaypoint := make(map[int]*models.Waypoint)
+	originalDurations := make(map[int]time.Duration) // ← ЗАПОМИНАЕМ ДЛИТЕЛЬНОСТИ
 
 	currentTime := startDate
 
-	// 1. Создаем все точки с начальными датами (без учета трансферов)
 	for _, rwp := range routeWaypoints {
 		wpID := uuid.New()
 		plannedStart := currentTime
-		plannedEnd := currentTime.Add(time.Duration(rwp.DurationDays*24+rwp.DurationHours) * time.Hour)
+		duration := time.Duration(rwp.DurationDays*24+rwp.DurationHours) * time.Hour
+		plannedEnd := currentTime.Add(duration)
+
+		originalDurations[rwp.OrderIndex] = duration // ← СОХРАНЯЕМ
 
 		wp := models.Waypoint{
 			ID:           wpID,
@@ -297,7 +300,6 @@ func (s *EventService) calculateWaypointAndTransferDates(
 		currentTime = plannedEnd
 	}
 
-	// 2. Вставляем трансферы и корректируем даты ПОСЛЕДУЮЩИХ точек
 	transfers := make([]models.EventTransfer, 0, len(routeTransfers))
 
 	for i, rt := range routeTransfers {
@@ -326,18 +328,17 @@ func (s *EventService) calculateWaypointAndTransferDates(
 			OrderIndex: i, CreatedAt: now,
 		})
 
-		// НЕ обновляем даты для первой точки при кольцевом возврате
 		if toOrder == 0 {
-			continue // ← ВОТ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+			continue
 		}
 
 		// Сдвигаем начало следующей точки
 		newStart := transferEnd
 		toWP.PlannedStart = &newStart
 
-		// Пересчитываем конец
-		stayDuration := toWP.PlannedEnd.Sub(*fromWP.PlannedEnd)
-		newEnd := newStart.Add(stayDuration)
+		// Используем СОХРАНЕННУЮ длительность точки
+		originalDuration := originalDurations[toOrder]
+		newEnd := newStart.Add(originalDuration)
 		toWP.PlannedEnd = &newEnd
 	}
 
