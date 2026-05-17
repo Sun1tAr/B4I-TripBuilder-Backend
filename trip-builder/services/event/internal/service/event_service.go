@@ -161,8 +161,16 @@ func (s *EventService) CreateEvent(ctx context.Context, userID uuid.UUID, req *m
 	eventID := uuid.New()
 	now := time.Now()
 
-	waypoints, transfers := s.calculateWaypointAndTransferDates(routeData.Waypoints, routeData.Transfers, req.StartDate, eventID)
+	waypoints, transfers := s.calculateWaypointAndTransferDates(
+		routeData.Waypoints,
+		routeData.Transfers,
+		req.StartDate,
+		eventID,
+		[]models.EventTransfer{},
+		[]models.Waypoint{},
+	)
 
+	// Вычисляем дату окончания — последняя дата в таймлайне
 	endDate := req.StartDate
 	if len(transfers) > 0 && transfers[len(transfers)-1].PlannedEnd != nil {
 		endDate = *transfers[len(transfers)-1].PlannedEnd
@@ -266,21 +274,39 @@ func (s *EventService) calculateWaypointAndTransferDates(
 	routeTransfers []route.Transfer,
 	startDate time.Time,
 	eventID uuid.UUID,
+	existingTransfers []models.EventTransfer,
+	existingWaypoints []models.Waypoint,
 ) ([]models.Waypoint, []models.EventTransfer) {
 	now := time.Now()
 	waypoints := make([]models.Waypoint, 0, len(routeWaypoints))
 	orderToWaypoint := make(map[int]*models.Waypoint)
-	originalDurations := make(map[int]time.Duration) // ← ЗАПОМИНАЕМ ДЛИТЕЛЬНОСТИ
+	originalDurations := make(map[int]time.Duration)
+
+	// Создаем мапы старых ID по order_index
+	oldWaypointIDs := make(map[int]uuid.UUID)
+	for _, wp := range existingWaypoints {
+		oldWaypointIDs[wp.OrderIndex] = wp.ID
+	}
+	oldTransferIDs := make(map[int]uuid.UUID)
+	for _, t := range existingTransfers {
+		oldTransferIDs[t.OrderIndex] = t.ID
+	}
 
 	currentTime := startDate
 
+	// 1. Создаем все точки с начальными датами (без учета трансферов)
 	for _, rwp := range routeWaypoints {
+		// Используем старый UUID если есть
 		wpID := uuid.New()
+		if oldID, ok := oldWaypointIDs[rwp.OrderIndex]; ok {
+			wpID = oldID
+		}
+
 		plannedStart := currentTime
 		duration := time.Duration(rwp.DurationDays*24+rwp.DurationHours) * time.Hour
 		plannedEnd := currentTime.Add(duration)
 
-		originalDurations[rwp.OrderIndex] = duration // ← СОХРАНЯЕМ
+		originalDurations[rwp.OrderIndex] = duration
 
 		wp := models.Waypoint{
 			ID:           wpID,
@@ -300,6 +326,7 @@ func (s *EventService) calculateWaypointAndTransferDates(
 		currentTime = plannedEnd
 	}
 
+	// 2. Вставляем трансферы и корректируем даты ПОСЛЕДУЮЩИХ точек
 	transfers := make([]models.EventTransfer, 0, len(routeTransfers))
 
 	for i, rt := range routeTransfers {
@@ -319,8 +346,14 @@ func (s *EventService) calculateWaypointAndTransferDates(
 		transferDuration := time.Duration(rt.DurationHours)*time.Hour + time.Duration(rt.DurationMinutes)*time.Minute
 		transferEnd := transferStart.Add(transferDuration)
 
+		// Используем старый UUID если есть
+		transferID := uuid.New()
+		if oldID, ok := oldTransferIDs[i]; ok {
+			transferID = oldID
+		}
+
 		transfers = append(transfers, models.EventTransfer{
-			ID: uuid.New(), EventID: eventID,
+			ID: transferID, EventID: eventID,
 			FromWaypointID: fromWP.ID, ToWaypointID: toWP.ID,
 			DurationHours: rt.DurationHours, DurationMinutes: rt.DurationMinutes,
 			TransportType: models.TransportType(rt.TransportType),
@@ -328,6 +361,7 @@ func (s *EventService) calculateWaypointAndTransferDates(
 			OrderIndex: i, CreatedAt: now,
 		})
 
+		// НЕ обновляем даты для первой точки при кольцевом возврате
 		if toOrder == 0 {
 			continue
 		}
@@ -395,14 +429,27 @@ func (s *EventService) GetPublicEvents(ctx context.Context, page, size int) ([]m
 }
 
 func (s *EventService) UpdateEvent(ctx context.Context, eventID, userID uuid.UUID, req *models.UpdateEventRequest) (*models.Event, error) {
+	s.log.Debug("UpdateEvent: начало", "event_id", eventID, "user_id", userID)
+
+	// Проверяем права
 	isOwner, err := s.participantRepo.IsOwner(ctx, eventID, userID)
-	if err != nil || !isOwner {
+	if err != nil {
+		return nil, err
+	}
+	if !isOwner {
 		return nil, ErrNotOwner
 	}
+
+	// Получаем событие
 	event, err := s.eventRepo.GetByID(ctx, eventID)
-	if err != nil || event == nil {
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
 		return nil, ErrEventNotFound
 	}
+
+	// Обновляем поля
 	if req.Title != nil {
 		event.Title = *req.Title
 	}
@@ -415,17 +462,106 @@ func (s *EventService) UpdateEvent(ctx context.Context, eventID, userID uuid.UUI
 	if req.IsPublic != nil {
 		event.IsPublic = *req.IsPublic
 	}
+
+	// Если меняется дата начала — пересчитываем с учетом трансферов
 	if req.StartDate != nil && !req.StartDate.Equal(event.StartDate) {
 		if req.StartDate.Before(time.Now()) {
 			return nil, ErrInvalidStartDate
 		}
 		event.StartDate = *req.StartDate
+
+		existingWaypoints, err := s.waypointRepo.GetByEventID(ctx, eventID)
+		if err != nil {
+			s.log.Error("UpdateEvent: ошибка получения точек", "error", err)
+			return nil, err
+		}
+
+		existingTransfers, err := s.transferRepo.GetByEventID(ctx, eventID)
+		if err != nil {
+			s.log.Error("UpdateEvent: ошибка получения трансферов", "error", err)
+		}
+
+		routeWaypoints := convertToRouteWaypoints(existingWaypoints)
+		routeTransfers := convertToRouteTransfers(existingTransfers)
+
+		newWaypoints, newTransfers := s.calculateWaypointAndTransferDates(
+			routeWaypoints, routeTransfers, event.StartDate, eventID,
+			existingTransfers,
+			existingWaypoints,
+		)
+
+		// Обновляем точки в БД
+		for i := range newWaypoints {
+			if err := s.waypointRepo.Update(ctx, &newWaypoints[i]); err != nil {
+				s.log.Error("UpdateEvent: ошибка обновления точки", "error", err, "waypoint_id", newWaypoints[i].ID)
+			}
+		}
+
+		// Обновляем трансферы в БД
+		for i := range newTransfers {
+			if err := s.transferRepo.Update(ctx, &newTransfers[i]); err != nil {
+				s.log.Error("UpdateEvent: ошибка обновления трансфера", "error", err, "transfer_id", newTransfers[i].ID)
+			}
+		}
+
+		// Обновляем end_date — последняя дата в таймлайне
+		if len(newTransfers) > 0 && newTransfers[len(newTransfers)-1].PlannedEnd != nil {
+			event.EndDate = *newTransfers[len(newTransfers)-1].PlannedEnd
+		} else if len(newWaypoints) > 0 && newWaypoints[len(newWaypoints)-1].PlannedEnd != nil {
+			event.EndDate = *newWaypoints[len(newWaypoints)-1].PlannedEnd
+		}
 	}
+
+	// Сохраняем изменения события
 	if err := s.eventRepo.Update(ctx, event); err != nil {
 		return nil, err
 	}
-	s.producer.PublishEventUpdated(ctx, eventID, userID, event.Title, event.StartDate, event.EndDate, event.IsPublic)
+
+	// Публикуем событие
+	if err := s.producer.PublishEventUpdated(ctx, eventID, userID, event.Title, event.StartDate, event.EndDate, event.IsPublic); err != nil {
+		s.log.Error("UpdateEvent: ошибка публикации события", "error", err)
+	}
+
 	return event, nil
+}
+
+// convertToRouteWaypoints конвертирует модели точек в формат для расчета дат
+func convertToRouteWaypoints(waypoints []models.Waypoint) []route.RouteWaypoint {
+	result := make([]route.RouteWaypoint, len(waypoints))
+	for i, wp := range waypoints {
+		durationDays := 0
+		durationHours := 0
+		if wp.PlannedStart != nil && wp.PlannedEnd != nil {
+			d := wp.PlannedEnd.Sub(*wp.PlannedStart)
+			durationDays = int(d.Hours()) / 24
+			durationHours = int(d.Hours()) % 24
+		}
+		result[i] = route.RouteWaypoint{
+			ID:            wp.ID,
+			OrderIndex:    wp.OrderIndex,
+			City:          wp.City,
+			Description:   wp.Description,
+			Latitude:      wp.Latitude,
+			Longitude:     wp.Longitude,
+			DurationDays:  durationDays,
+			DurationHours: durationHours,
+		}
+	}
+	return result
+}
+
+// convertToRouteTransfers конвертирует трансферы в формат для расчета дат
+func convertToRouteTransfers(transfers []models.EventTransfer) []route.Transfer {
+	result := make([]route.Transfer, len(transfers))
+	for i, t := range transfers {
+		result[i] = route.Transfer{
+			OrderIndex:      t.OrderIndex,
+			DurationHours:   t.DurationHours,
+			DurationMinutes: t.DurationMinutes,
+			TransportType:   string(t.TransportType),
+		}
+	}
+	return result
 }
 
 func (s *EventService) DeleteEvent(ctx context.Context, eventID, userID uuid.UUID) error {
