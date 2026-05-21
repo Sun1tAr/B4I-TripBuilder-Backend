@@ -33,7 +33,7 @@ jobs:
       contour: production
       deploy_path: /opt/trip-builder/test
       nginx_conf_source: .docker/nginx-backend-test.conf
-      nginx_conf_target: /etc/nginx/apps-available/trip-builder-backend-test.conf
+      nginx_conf_target: /etc/nginx/sites-enabled/trip-builder-backend.conf
 
       # Передаём вычисленное время
       workflow_start: ${{ needs.prepare.outputs.workflow_start || 'default_value'  }}
@@ -42,27 +42,27 @@ jobs:
       services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media", "notification"]'
 
       auth_port: 9001
-      auth_container_name: trip-builder-backend-auth-test
+      auth_container_name: auth
 
       user_port: 9002
-      user_container_name: trip-builder-backend-user-test
+      user_container_name: user
 
-      gateway_port: 9010
-      gateway_ws_port: 9011
-      gateway_container_name: trip-builder-backend-gateway-test
+      gateway_port: 9110
+      gateway_ws_port: 9111
+      gateway_container_name: gateway
 
       postgres_port: 5432
-      postgres_container_name: postgres-test
-      postgres_user: auth_user
-      postgres_password: auth_pass_test
+      postgres_container_name: postgres
+      postgres_user: Sun1tAr_developer
+      postgres_password: B4eTeam23736!
       postgres_database_name: trip-builder
 
       redis_port: 6379
-      redis_container_name: redis-test
+      redis_container_name: redis
 
-      zookeeper_container_name: zookeeper-test
+      zookeeper_container_name: zookeeper
       zookeeper_port: 2181
-      kafka_container_name: kafka-test
+      kafka_container_name: kafka
       kafka_port: 9092
 
       # jDoc топики кафки
@@ -92,31 +92,31 @@ jobs:
         ]'
 
       route_port: 9003
-      route_container_name: trip-builder-backend-route-test
+      route_container_name: route
 
       event_port: 9004
-      event_container_name: trip-builder-backend-event-test
+      event_container_name: event
 
       task_port: 9005
-      task_container_name: trip-builder-backend-task-test
+      task_container_name: task
 
       chat_port: 9006
-      chat_container_name: trip-builder-backend-chat-test
+      chat_container_name: chat
 
       media_port: 9007
-      media_container_name: trip-builder-backend-media-test
+      media_container_name: media
 
       notification_port: 9009
-      notification_container_name: trip-builder-backend-notification-test
+      notification_container_name: notification
 
       minio_port: 7000
       minio_console_port: 7001
-      minio_container_name: minio-test
-      minio_user: minio_user
-      minio_password: minio_pass_test
+      minio_container_name: minio
+      minio_user: Sun1tAr_developer
+      minio_password: B4eTeam23736!
 
 
     secrets:
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY_PROD }}
+      SSH_HOST: ${{ secrets.SSH_HOST_PROD }}
+      SSH_USER: ${{ secrets.SSH_USER_PROD }}
