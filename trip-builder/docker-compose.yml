@@ -248,17 +248,6 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # Добавляем MailHog для тестирования email в dev окружении
-#  mailhog:
-#    image: mailhog/mailhog:latest
-#    container_name: ${MAILHOG_CONTAINER_NAME:-trip-builder-backend-mailhog}
-#    ports:
-#      - "${MAILHOG_SMTP_PORT:-1025}:1025"  # SMTP порт
-#      - "${MAILHOG_WEB_PORT:-8025}:8025"   # Веб-интерфейс
-#    networks:
-#      - trip-builder-network
-#    restart: unless-stopped
-
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -297,6 +286,20 @@ services:
       - trip-builder-network
     restart: unless-stopped
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: sun1tardeveloper@trip-builder.ru
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-B4eTeam23736!}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - trip-builder-network
+    restart: unless-stopped
+
 networks:
   trip-builder-network:
     driver: bridge
@@ -306,5 +309,7 @@ volumes:
     driver: local
   minio_data:
     driver: local
-  prometheus:
+  prometheus_data:
+    driver: local
+  pgadmin_data:
     driver: local

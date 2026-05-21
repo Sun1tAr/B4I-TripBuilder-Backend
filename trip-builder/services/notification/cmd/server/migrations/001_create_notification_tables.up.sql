@@ -60,13 +60,13 @@ ON CONFLICT (type, language) DO NOTHING;
 
 INSERT INTO email_templates (type, subject, body_template, language) VALUES
     ('event.invite', 'Вас пригласили в поездку "{{.EventTitle}}"',
-     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><h1>Привет, {{.FirstName}}!</h1><p><strong>{{.InviterName}}</strong> приглашает вас присоединиться к поездке <strong>"{{.EventTitle}}"</strong>.</p><p>📅 Дата начала: {{.StartDate}}</p><p>📍 Маршрут: {{.RouteTitle}}</p><p><a href="{{.InviteLink}}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Принять приглашение</a></p><p>С уважением,<br>Команда Trip Builder</p></body></html>',
+     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><h1>Привет, {{.FirstName}}!</h1><p><strong>{{.InviterName}}</strong> приглашает вас присоединиться к поездке <strong>"{{.EventTitle}}"</strong>.</p><p>Дата начала: {{.StartDate}}</p><p>Маршрут: {{.RouteTitle}}</p><p><a href="{{.InviteLink}}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Принять приглашение</a></p><p>С уважением,<br>Команда Trip Builder</p></body></html>',
      'ru')
 ON CONFLICT (type, language) DO NOTHING;
 
 INSERT INTO email_templates (type, subject, body_template, language) VALUES
     ('task.assigned', 'Вам назначена задача "{{.TaskTitle}}"',
-     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><h1>Привет, {{.FirstName}}!</h1><p>В поездке <strong>"{{.EventTitle}}"</strong> вам назначена задача:</p><h2>{{.TaskTitle}}</h2><p>{{.TaskDescription}}</p><p>⏰ Срок выполнения: {{.DueDate}}</p><p>📊 Приоритет: {{.Priority}}</p><p><a href="{{.TaskLink}}">Перейти к задаче</a></p><p>С уважением,<br>Команда Trip Builder</p></body></html>',
+     '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><h1>Привет, {{.FirstName}}!</h1><p>В поездке <strong>"{{.EventTitle}}"</strong> вам назначена задача:</p><h2>{{.TaskTitle}}</h2><p>{{.TaskDescription}}</p><p>Срок выполнения: {{.DueDate}}</p><p> Приоритет: {{.Priority}}</p><p><a href="{{.TaskLink}}">Перейти к задаче</a></p><p>С уважением,<br>Команда Trip Builder</p></body></html>',
      'ru')
 ON CONFLICT (type, language) DO NOTHING;
 

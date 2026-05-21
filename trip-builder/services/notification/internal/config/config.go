@@ -22,6 +22,11 @@ type Config struct {
 	ChatMessageTopic   string `envconfig:"KAFKA_TOPIC_CHAT_MESSAGE" default:"chat.message"`
 	EventReminderTopic string `envconfig:"KAFKA_TOPIC_EVENT_REMINDER" default:"event.reminder"`
 
+	PasswordResetTopic string `envconfig:"KAFKA_TOPIC_PASSWORD_RESET" default:"password.reset"`
+
+	// URL для сброса пароля
+	ForgotPasswordURL string `envconfig:"FORGOT_PASSWORD_URL" default:""`
+
 	// URL других сервисов
 	UserServiceURL  string `envconfig:"USER_SERVICE_URL" required:"true"`
 	EventServiceURL string `envconfig:"EVENT_SERVICE_URL" required:"true"`
@@ -92,6 +97,10 @@ func (c *Config) GetChatURL(eventID string) string {
 // Плейсхолдер: %s = eventID
 func (c *Config) GetEventURL(eventID string) string {
 	return c.IncludeBaseUrl(fmt.Sprintf(c.EventURL, eventID))
+}
+
+func (c *Config) GetForgotPasswordURL(token string) string {
+	return c.IncludeBaseUrl(fmt.Sprintf(c.ForgotPasswordURL, token))
 }
 
 func (c *Config) IncludeBaseUrl(uri string) string {

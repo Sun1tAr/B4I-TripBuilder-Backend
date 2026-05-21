@@ -231,6 +231,20 @@ func main() {
 			go reminderConsumer.Start(ctx)
 			log.Info("Consumer запущен", "topic", cfg.EventReminderTopic)
 		}
+
+		// Consumer для password.reset
+		if cfg.PasswordResetTopic != "" {
+			passwordResetConsumer := kafka.NewPasswordResetConsumer(
+				cfg.Kafka.Brokers,
+				cfg.PasswordResetTopic,
+				groupID,
+				notificationService,
+				log,
+			)
+			go passwordResetConsumer.Start(ctx)
+			log.Info("Consumer запущен", "topic", cfg.PasswordResetTopic)
+		}
+
 	} else {
 		log.Warn("Kafka брокеры не настроены, консьюмеры не запущены")
 	}

@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [closed]
     branches:
-      - deployment
+      - develop
 
 permissions:
   contents: read
@@ -42,21 +42,27 @@ jobs:
       services: '["auth", "user", "gateway", "route", "event", "task", "chat", "media", "notification"]'
 
       auth_port: 9101
+      auth_container_name: trip-builder-backend-auth-dev
 
       user_port: 9102
+      user_container_name: trip-builder-backend-user-dev
 
       gateway_port: 9110
       gateway_ws_port: 9111
+      gateway_container_name: trip-builder-backend-gateway-dev
 
       postgres_port: 5422
+      postgres_container_name: postgres-dev
       postgres_user: auth_user
       postgres_password: auth_pass_dev
       postgres_database_name: trip-builder
 
       redis_port: 6369
+      redis_container_name: redis-dev
 
-
+      zookeeper_container_name: zookeeper-dev
       zookeeper_port: 2171
+      kafka_container_name: kafka-dev
       kafka_port: 9082
 
       # jDoc топики кафки
@@ -81,23 +87,31 @@ jobs:
         "task.completed",
         "event.participant_joined",
         "event.invite",
-        "task.assigned"
+        "task.assigned", 
+        "password.reset"
         ]'
 
       route_port: 9103
+      route_container_name: trip-builder-backend-route-dev
 
       event_port: 9104
+      event_container_name: trip-builder-backend-event-dev
 
       task_port: 9105
+      task_container_name: trip-builder-backend-task-dev
 
       chat_port: 9106
+      chat_container_name: trip-builder-backend-chat-dev
 
       media_port: 9107
+      media_container_name: trip-builder-backend-media-dev
 
       notification_port: 9109
+      notification_container_name: trip-builder-backend-notification-dev
 
       minio_port: 7100
       minio_console_port: 7101
+      minio_container_name: minio-dev
       minio_user: minio_user
       minio_password: minio_pass_dev
 

@@ -23,11 +23,12 @@ import (
 )
 
 type AuthHandler struct {
-	authService   *service.AuthService
-	rateLimiter   *ratelimit.RateLimiter
-	kafkaProducer *kafka.Producer
-	userClient    *user.Client
-	log           *logger.Logger
+	authService        *service.AuthService
+	rateLimiter        *ratelimit.RateLimiter
+	kafkaProducer      *kafka.Producer
+	userClient         *user.Client
+	passwordResetTopic string // ← ДОБАВЛЯЕМ
+	log                *logger.Logger
 }
 
 func NewAuthHandler(
@@ -35,14 +36,16 @@ func NewAuthHandler(
 	rateLimiter *ratelimit.RateLimiter,
 	kafkaProducer *kafka.Producer,
 	userClient *user.Client,
+	passwordResetTopic string, // ← ДОБАВЛЯЕМ
 	log *logger.Logger,
 ) *AuthHandler {
 	return &AuthHandler{
-		authService:   authService,
-		rateLimiter:   rateLimiter,
-		kafkaProducer: kafkaProducer,
-		userClient:    userClient,
-		log:           log,
+		authService:        authService,
+		rateLimiter:        rateLimiter,
+		kafkaProducer:      kafkaProducer,
+		userClient:         userClient,
+		passwordResetTopic: passwordResetTopic, // ← ДОБАВЛЯЕМ
+		log:                log,
 	}
 }
 
@@ -348,6 +351,9 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 // RequestPasswordReset запрос сброса пароля
+// Работает в двух режимах:
+// 1. Без авторизации + email в теле → для "Забыл пароль"
+// 2. С авторизацией + пустое тело → для "Сменить пароль" (берет email из токена)
 func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req authdto.ResetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -355,16 +361,82 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	resetToken, err := h.authService.RequestPasswordReset(r.Context(), req.Email)
+	var email string
+	var userID uuid.UUID
+	var firstName string
+
+	// Пробуем получить user_id из контекста (если пользователь авторизован через AuthOptional)
+	userIDStr, _ := r.Context().Value("user_id").(string)
+
+	if req.Email != "" {
+		// Сценарий 1: "Забыл пароль" — email передан в теле запроса
+		email = req.Email
+		user, err := h.authService.GetUserByEmail(r.Context(), email)
+		if err == nil && user != nil {
+			userID = user.ID
+		}
+	} else if userIDStr != "" {
+		// Сценарий 2: "Сменить пароль" — пользователь авторизован, берем email из его профиля
+		uid, err := uuid.Parse(userIDStr)
+		if err == nil {
+			user, err := h.authService.GetUserByID(r.Context(), uid)
+			if err == nil && user != nil {
+				userID = uid
+				email = user.Email
+			}
+		}
+	}
+
+	// Если email не определен — не раскрываем информацию
+	if email == "" {
+		h.writeJSON(w, http.StatusOK, authdto.MessageResponse{
+			Message: "If email exists, reset link will be sent",
+		})
+		return
+	}
+
+	// Получаем имя пользователя из User Service
+	if userID != uuid.Nil {
+		profile, err := h.userClient.GetProfile(r.Context(), userID)
+		if err == nil && profile != nil {
+			firstName = profile.FirstName
+		}
+	}
+
+	// Генерируем токен сброса
+	resetToken, err := h.authService.RequestPasswordReset(r.Context(), email)
 	if err != nil {
 		h.log.Error("Ошибка запроса сброса пароля", "error", err)
 	}
 
 	if resetToken != "" {
-		h.log.Debug("Сгенерирован токен сброса пароля", "email", req.Email)
+		h.log.Info("Сгенерирован токен сброса пароля", "email", email)
+
+		// Публикуем событие в Kafka для отправки письма
+		go func() {
+			eventData := authdto.PasswordResetData{
+				UserID:     userID,
+				Email:      email,
+				FirstName:  firstName,
+				ResetToken: resetToken,
+			}
+			event := kafka.Event{
+				EventID:   uuid.New().String(),
+				EventType: "password.reset",
+				Timestamp: time.Now(),
+				Data:      eventData,
+			}
+			if err := h.kafkaProducer.PublishTo(context.Background(), h.passwordResetTopic, event); err != nil {
+				h.log.Error("Ошибка отправки password.reset", "error", err, "email", email)
+			} else {
+				h.log.Info("Событие password.reset отправлено", "email", email)
+			}
+		}()
 	}
 
-	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{Message: "if email exists, reset link will be sent"})
+	h.writeJSON(w, http.StatusOK, authdto.MessageResponse{
+		Message: "If email exists, reset link will be sent",
+	})
 }
 
 // ResetPassword сброс пароля
